@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>INFO TV APP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<!-- ============ AUTH ============ -->
+<div id="auth" class="auth-wrap">
+  <div class="auth-left">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="big">INFO</div>
+        <div class="tag">TV APP</div>
+      </div>
+      <h1 id="authTitle">Login to your account</h1>
+      <div id="authErr" class="err hidden"></div>
+      <div id="nameField" class="field hidden">
+        <label>Your name</label>
+        <input id="regName" placeholder="Jane Doe">
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input id="email" type="email" placeholder="you@company.com">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input id="password" type="password" placeholder="••••••••">
+      </div>
+      <button class="btn" id="authBtn" onclick="doAuth()">Login</button>
+      <div class="switch">
+        <span id="switchText">New here?</span>
+        <a href="#" id="switchLink" onclick="toggleAuth(event)">Create a free account</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ APP ============ -->
+<div id="app" class="hidden">
+  <div class="topbar">
+    <div class="brand"><span class="mark"><span class="a">INFO</span><span class="b">TV APP</span></span></div>
+    <nav class="nav">
+      <a href="#" data-tab="content" class="active">Content</a>
+      <a href="#" data-tab="screens">Screens</a>
+      <a href="#" data-tab="groups">Groups</a>
+      <a href="#" data-tab="websites">Websites</a>
+      <a href="#" data-tab="admin" id="adminTab" class="hidden">Admin</a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="user-chip">
+      <span id="userName"></span>
+      <div class="avatar" id="userAvatar">U</div>
+      <button class="kebab" onclick="logout()" title="Sign out">⎋</button>
+    </div>
+  </div>
+  <div class="container" id="view"></div>
+</div>
+
+<input type="file" id="fileInput" class="hidden" accept="image/*,video/*" multiple>
+<div id="modalRoot"></div>
+<script src="/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>INFO TV APP — Player</title>
+<style>
+  html,body{margin:0;height:100%;background:#000;color:#fff;font-family:"Poppins",system-ui,sans-serif;overflow:hidden}
+  #pair{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center}
+  .big{font-size:44px;font-weight:800}.big .a{color:#8ea2ff}.tag{background:#e30613;padding:4px 16px;border-radius:10px;font-weight:800}
+  .code{font-family:ui-monospace,Menlo,monospace;font-size:64px;letter-spacing:10px;font-weight:800;margin-top:10px}
+  .hint{color:#9ca3af;max-width:520px}
+  #stage{height:100%;width:100%;display:none;align-items:center;justify-content:center;background:#000}
+  #stage img,#stage video,#stage iframe{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;border:0}
+</style>
+</head>
+<body>
+  <div id="pair">
+    <div class="big"><span class="a">INFO</span> <span class="tag">TV APP</span></div>
+    <div class="hint">To connect this screen, go to your INFO TV dashboard → <b>Screens → Pair a screen</b> and enter this code:</div>
+    <div class="code" id="code">••••••</div>
+    <div class="hint" id="status">Waiting for pairing…</div>
+  </div>
+  <div id="stage"></div>
+
+<script>
+const DEVICE_KEY='infotv_device_id';
+let deviceId=localStorage.getItem(DEVICE_KEY)||null;
+let playlist=[], idx=0, timer=null, lastKey='';
+
+async function register(){
+  const r=await fetch('/api/player/register',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({device_id:deviceId})});
+  const d=await r.json(); deviceId=d.device_id; localStorage.setItem(DEVICE_KEY,deviceId);
+  if(d.pair_code) document.getElementById('code').textContent=d.pair_code;
+}
+async function poll(){
+  try{
+    const r=await fetch('/api/player/state?device_id='+encodeURIComponent(deviceId));
+    const d=await r.json();
+    if(!d.paired){ showPair(d.pair_code); return; }
+    if(d.paused){ showPaused(); return; }
+    const key=JSON.stringify(d.playlist);
+    if(key!==lastKey){ lastKey=key; playlist=d.playlist||[]; idx=0; startShow(); }
+  }catch(e){ /* keep trying */ }
+}
+function showPaused(){
+  clearTimeout(timer); lastKey='__paused__';
+  document.getElementById('pair').style.display='none';
+  const st=document.getElementById('stage'); st.style.display='flex';
+  st.innerHTML='<div style="color:#4b5563;font-size:22px">⏸ Paused</div>';
+}
+function showPair(code){ document.getElementById('pair').style.display='flex';
+  document.getElementById('stage').style.display='none';
+  if(code) document.getElementById('code').textContent=code;
+  document.getElementById('status').textContent='Waiting for pairing…';
+  clearTimeout(timer);
+}
+function startShow(){
+  document.getElementById('pair').style.display='none';
+  const st=document.getElementById('stage'); st.style.display='flex';
+  clearTimeout(timer);
+  if(!playlist.length){ st.innerHTML='<div style="color:#6b7280">No content assigned yet</div>'; return; }
+  next();
+}
+function next(){
+  const st=document.getElementById('stage'); const item=playlist[idx%playlist.length]; idx++;
+  st.innerHTML='';
+  if(item.type==='video'){
+    const v=document.createElement('video'); v.src=item.url; v.autoplay=true; v.muted=false; v.volume=1; v.playsInline=true;
+    v.onended=()=>next(); v.onerror=()=>timer=setTimeout(next,3000); st.appendChild(v);
+    window._cur=v;
+    var p=v.play();
+    if(p&&p.catch){ p.catch(function(){ v.muted=true; v.play().catch(function(){}); }); }
+  }else if(item.type==='website'){
+    const f=document.createElement('iframe'); f.src=item.url;
+    f.setAttribute('allow','autoplay; encrypted-media; fullscreen; picture-in-picture');
+    f.setAttribute('allowfullscreen','');
+    st.appendChild(f);
+    timer=setTimeout(next,(item.duration||20)*1000);
+  }else{
+    const img=document.createElement('img'); img.src=item.url; st.appendChild(img);
+    timer=setTimeout(next,(item.duration||10)*1000);
+  }
+}
+function unlockSound(){ try{ if(window._cur){ window._cur.muted=false; window._cur.volume=1; window._cur.play().catch(function(){}); } }catch(e){} }
+document.addEventListener('click', unlockSound);
+document.addEventListener('keydown', unlockSound);
+document.addEventListener('touchstart', unlockSound);
+(async function(){ await register(); poll(); setInterval(poll,5000); })();
+</script>
+</body>
+</html>
