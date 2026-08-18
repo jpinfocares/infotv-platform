@@ -226,18 +226,18 @@ async function editSite(id){
   openModal('Edit website', `
     <div class="field"><label>Title</label><input id="esTitle" value="${esc(s.title)}"></div>
     <div class="field"><label>URL (YouTube links auto-convert)</label><input id="esUrl" value="${esc(s.url)}"></div>
-    <div class="field"><label>Show for (seconds)</label><input id="esDur" type="number" value="${s.duration}"></div>`,
+    <div class="field"><label>Show for seconds (0 = play full / loop)</label><input id="esDur" type="number" min="0" value="${s.duration||0}"></div>`,
     [{label:'Save',cls:'btn',fn:async()=>{ try{
-      await api('/api/websites/'+id,{method:'PATCH',json:{title:$('#esTitle').value.trim(),url:$('#esUrl').value.trim(),duration:+$('#esDur').value||20}});
+      await api('/api/websites/'+id,{method:'PATCH',json:{title:$('#esTitle').value.trim(),url:$('#esUrl').value.trim(),duration:+$('#esDur').value||0}});
       closeModal(); toast('Website updated'); renderWebsites(); }catch(e){ toast(e.message);} }}]);
 }
 function siteModal(){
   openModal('Add website', `
     <div class="field"><label>Title</label><input id="siteTitle" placeholder="Company dashboard"></div>
     <div class="field"><label>URL</label><input id="siteUrl" placeholder="https://example.com"></div>
-    <div class="field"><label>Show for (seconds)</label><input id="siteDur" type="number" value="20"></div>`,
+    <div class="field"><label>Show for seconds (leave 0 = play full / loop; set seconds only to rotate)</label><input id="siteDur" type="number" min="0" value="0"></div>`,
     [{label:'Add website',cls:'btn',fn:async()=>{ try{
-      await api('/api/websites',{json:{title:$('#siteTitle').value.trim(),url:$('#siteUrl').value.trim(),duration:+$('#siteDur').value||20}});
+      await api('/api/websites',{json:{title:$('#siteTitle').value.trim(),url:$('#siteUrl').value.trim(),duration:+$('#siteDur').value||0}});
       closeModal(); renderWebsites(); }catch(e){ toast(e.message);} }}]);
 }
 async function delSite(id){ if(!confirm('Delete this website?'))return;
