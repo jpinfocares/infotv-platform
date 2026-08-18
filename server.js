@@ -134,7 +134,7 @@ app.post('/api/content', auth, upload.single('file'), (req, res) => {
     filename: req.file.filename,
     type,
     orientation: req.body.orientation || 'landscape',
-    duration: 10,
+    duration: type === 'video' ? 0 : 10,
     size: req.file.size
   });
   res.json(row);
@@ -154,7 +154,7 @@ app.patch('/api/content/:id', auth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'Content not found' });
   const patch = {};
   if (req.body.title !== undefined) patch.title = req.body.title;
-  if (req.body.duration !== undefined) patch.duration = +req.body.duration || 10;
+  if (req.body.duration !== undefined) { const d = Number(req.body.duration); patch.duration = isNaN(d) ? 0 : d; }
   res.json(store.update('content', id, patch));
 });
 
@@ -242,7 +242,7 @@ app.post('/api/screens/pair', auth, (req, res) => {
   const screen = store.find('screens', s => s.pair_code === (code || '').toUpperCase() && !s.paired);
   if (!screen) return res.status(404).json({ error: 'No screen is showing that pairing code' });
   store.update('screens', screen.id, {
-    user_id: req.user.id, name: name || 'Screen', group_id: group_id || null, paired: 1, pair_code: null
+    user_id: req.user.id, name: name || 'Screen', group_id: group_id ? Number(group_id) : null, paired: 1, pair_code: null
   });
   res.json(store.find('screens', s => s.id === screen.id));
 });
@@ -252,7 +252,7 @@ app.patch('/api/screens/:id', auth, (req, res) => {
   if (!s) return res.status(404).json({ error: 'Screen not found' });
   const patch = {};
   if (req.body.name !== undefined) patch.name = req.body.name;
-  if (req.body.group_id !== undefined) patch.group_id = req.body.group_id;
+  if (req.body.group_id !== undefined) patch.group_id = req.body.group_id ? Number(req.body.group_id) : null;
   if (req.body.paused !== undefined) patch.paused = req.body.paused ? 1 : 0;
   res.json(store.update('screens', id, patch));
 });
@@ -306,7 +306,7 @@ function resolvePlaylist(screen, req) {
     if (r.item_type === 'content') {
       const c = store.find('content', x => x.id === r.item_id);
       if (!c) return null;
-      return { kind: 'content', type: c.type, filename: c.filename, url: `${base}/uploads/${c.filename}`, duration: c.duration || 10, title: c.title };
+      return { kind: 'content', type: c.type, filename: c.filename, url: `${base}/uploads/${c.filename}`, duration: c.type === 'video' ? (c.duration || 0) : (c.duration || 10), title: c.title };
     } else {
       const w = store.find('websites', x => x.id === r.item_id);
       if (!w) return null;
