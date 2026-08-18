@@ -42,6 +42,7 @@ async function poll(){
     const r=await fetch('/api/player/state?device_id='+encodeURIComponent(deviceId));
     const d=await r.json();
     if(!d.paired){ showPair(d.pair_code); return; }
+    if(d.blocked){ showBlocked(d.blocked); return; }
     if(d.paused){ showPaused(); return; }
     const key=JSON.stringify(d.playlist);
     if(key!==lastKey){ lastKey=key; playlist=d.playlist||[]; idx=0; startShow(); }
@@ -52,6 +53,12 @@ function showPaused(){
   document.getElementById('pair').style.display='none';
   const st=document.getElementById('stage'); st.style.display='flex';
   st.innerHTML='<div style="color:#4b5563;font-size:22px">⏸ Paused</div>';
+}
+function showBlocked(msg){
+  clearTimeout(timer); lastKey='__blocked__'+msg;
+  document.getElementById('pair').style.display='none';
+  const st=document.getElementById('stage'); st.style.display='flex';
+  st.innerHTML='<div style="color:#9ca3af;font-size:22px;text-align:center;padding:20px">'+(msg||'Not active')+'</div>';
 }
 function showPair(code){ document.getElementById('pair').style.display='flex';
   document.getElementById('stage').style.display='none';
