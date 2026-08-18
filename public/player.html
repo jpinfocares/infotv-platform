@@ -25,13 +25,16 @@
 
 <script>
 const DEVICE_KEY='infotv_device_id';
-let deviceId=localStorage.getItem(DEVICE_KEY)||null;
+const _params=new URLSearchParams(location.search);
+const PREVIEW=_params.get('preview')==='1';
+let deviceId=_params.get('device_id')||localStorage.getItem(DEVICE_KEY)||null;
 let playlist=[], idx=0, timer=null, lastKey='';
 
 async function register(){
   const r=await fetch('/api/player/register',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({device_id:deviceId})});
-  const d=await r.json(); deviceId=d.device_id; localStorage.setItem(DEVICE_KEY,deviceId);
+  const d=await r.json(); deviceId=d.device_id;
+  if(!PREVIEW) localStorage.setItem(DEVICE_KEY,deviceId);
   if(d.pair_code) document.getElementById('code').textContent=d.pair_code;
 }
 async function poll(){
@@ -67,7 +70,7 @@ function next(){
   const st=document.getElementById('stage'); const item=playlist[idx%playlist.length]; idx++;
   st.innerHTML='';
   if(item.type==='video'){
-    const v=document.createElement('video'); v.src=item.url; v.autoplay=true; v.muted=false; v.volume=1; v.playsInline=true;
+    const v=document.createElement('video'); v.src=item.url; v.autoplay=true; v.muted=PREVIEW?true:false; v.volume=PREVIEW?0:1; v.playsInline=true;
     var dur=Number(item.duration)||0;
     if(dur>0){
       // loop the video for the given number of seconds, then move on
@@ -83,7 +86,7 @@ function next(){
     var p=v.play();
     if(p&&p.catch){ p.catch(function(){ v.muted=true; v.play().catch(function(){}); }); }
   }else if(item.type==='website'){
-    const f=document.createElement('iframe'); f.src=item.url;
+    const f=document.createElement('iframe'); f.src=PREVIEW?item.url.replace('mute=0','mute=1'):item.url;
     f.setAttribute('allow','autoplay; encrypted-media; fullscreen; picture-in-picture');
     f.setAttribute('allowfullscreen','');
     st.appendChild(f);
