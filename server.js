@@ -85,11 +85,30 @@ function admin(req, res, next) {
   next();
 }
 
+// ---- subscription / plan helpers ----
+function subActive(user) {
+  if (!user) return false;
+  if (user.role === 'admin') return true;
+  const now = Date.now();
+  if (user.sub_start) { const s = new Date(user.sub_start + 'T00:00:00Z').getTime(); if (!isNaN(s) && now < s) return false; }
+  if (user.sub_expiry) { const e = new Date(user.sub_expiry + 'T23:59:59Z').getTime(); if (!isNaN(e) && now > e) return false; }
+  return true;
+}
+function screenLimit(user) {
+  if (!user) return 0;
+  if (user.role === 'admin') return 0; // 0 = unlimited
+  return user.screen_limit == null ? 1 : Number(user.screen_limit);
+}
+
 // ================= ADMIN: USER MANAGEMENT =================
 app.get('/api/admin/users', auth, admin, (req, res) => {
   res.json(store.all('users').map(u => ({
     id: u.id, email: u.email, name: u.name, role: u.role || 'user',
-    approved: u.approved ? 1 : 0, created_at: u.created_at
+    approved: u.approved ? 1 : 0, created_at: u.created_at,
+    screen_limit: u.screen_limit == null ? 1 : Number(u.screen_limit),
+    sub_start: u.sub_start || '', sub_expiry: u.sub_expiry || '',
+    screens_used: store.all('screens', s => s.user_id === u.id).length,
+    active: subActive(u)
   })).reverse());
 });
 app.post('/api/admin/users', auth, admin, (req, res) => {
@@ -112,6 +131,9 @@ app.patch('/api/admin/users/:id', auth, admin, (req, res) => {
   if (req.body.role !== undefined) patch.role = req.body.role === 'admin' ? 'admin' : 'user';
   if (req.body.name !== undefined) patch.name = req.body.name;
   if (req.body.password) patch.password_hash = bcrypt.hashSync(req.body.password, 10);
+  if (req.body.screen_limit !== undefined) patch.screen_limit = Math.max(0, Number(req.body.screen_limit) || 0);
+  if (req.body.sub_start !== undefined) patch.sub_start = req.body.sub_start || '';
+  if (req.body.sub_expiry !== undefined) patch.sub_expiry = req.body.sub_expiry || '';
   store.update('users', id, patch);
   const n = store.find('users', x => x.id === id);
   res.json({ id: n.id, email: n.email, name: n.name, role: n.role, approved: n.approved });
@@ -120,6 +142,30 @@ app.delete('/api/admin/users/:id', auth, admin, (req, res) => {
   const id = +req.params.id;
   if (id === req.user.id) return res.status(400).json({ error: 'You cannot delete your own account' });
   store.remove('users', u => u.id === id);
+  res.json({ ok: true });
+});
+
+// Admin: all screens across users (for approval / oversight)
+app.get('/api/admin/screens', auth, admin, (req, res) => {
+  const rows = store.all('screens', s => s.paired).map(s => {
+    const owner = store.find('users', u => u.id === s.user_id);
+    return {
+      id: s.id, name: s.name, device_id: s.device_id,
+      owner_email: owner ? owner.email : '(none)',
+      approved: s.approved ? 1 : 0, paused: s.paused ? 1 : 0,
+      last_seen: s.last_seen || null
+    };
+  }).reverse();
+  res.json(rows);
+});
+app.patch('/api/admin/screens/:id', auth, admin, (req, res) => {
+  const id = +req.params.id;
+  const s = store.find('screens', x => x.id === id);
+  if (!s) return res.status(404).json({ error: 'Screen not found' });
+  const patch = {};
+  if (req.body.approved !== undefined) patch.approved = req.body.approved ? 1 : 0;
+  if (req.body.paused !== undefined) patch.paused = req.body.paused ? 1 : 0;
+  store.update('screens', id, patch);
   res.json({ ok: true });
 });
 
@@ -241,10 +287,16 @@ app.get('/api/screens', auth, (req, res) => {
 });
 app.post('/api/screens/pair', auth, (req, res) => {
   const { code, name, group_id } = req.body || {};
+  const owner = store.find('users', u => u.id === req.user.id);
+  if (!subActive(owner)) return res.status(403).json({ error: 'Your subscription is not active. Contact admin.' });
+  const limit = screenLimit(owner);
+  const count = store.all('screens', s => s.user_id === req.user.id).length;
+  if (limit > 0 && count >= limit) return res.status(403).json({ error: `Screen limit reached (${limit}). Contact admin to add more.` });
   const screen = store.find('screens', s => s.pair_code === (code || '').toUpperCase() && !s.paired);
   if (!screen) return res.status(404).json({ error: 'No screen is showing that pairing code' });
   store.update('screens', screen.id, {
-    user_id: req.user.id, name: name || 'Screen', group_id: group_id ? Number(group_id) : null, paired: 1, pair_code: null
+    user_id: req.user.id, name: name || 'Screen', group_id: group_id ? Number(group_id) : null,
+    paired: 1, pair_code: null, approved: (owner.role === 'admin' ? 1 : 0)
   });
   res.json(store.find('screens', s => s.id === screen.id));
 });
@@ -323,6 +375,9 @@ app.get('/api/player/state', (req, res) => {
   if (!screen) return res.status(404).json({ error: 'unknown device' });
   store.update('screens', screen.id, { last_seen: store.nowISO() });
   if (!screen.paired) return res.json({ paired: false, pair_code: screen.pair_code });
+  const owner = store.find('users', u => u.id === screen.user_id);
+  if (!screen.approved) return res.json({ paired: true, name: screen.name, blocked: 'Waiting for admin approval', playlist: [] });
+  if (!subActive(owner)) return res.json({ paired: true, name: screen.name, blocked: 'Subscription expired — contact admin', playlist: [] });
   if (screen.paused) return res.json({ paired: true, name: screen.name, paused: true, playlist: [] });
   res.json({ paired: true, name: screen.name, paused: false, playlist: resolvePlaylist(screen, req) });
 });
