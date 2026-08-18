@@ -102,7 +102,7 @@ function cardHTML(c){
 function editContent(id,title,duration){
   openModal('Edit content', `
     <div class="field"><label>Title</label><input id="ecTitle" value="${esc(title)}"></div>
-    <div class="field"><label>Show for (seconds) — images only</label><input id="ecDur" type="number" value="${duration}"></div>`,
+    <div class="field"><label>Seconds to show — video: 0 = play full video, or set seconds to loop. Image: display time</label><input id="ecDur" type="number" min="0" value="${duration}"></div>`,
     [{label:'Save',cls:'btn',fn:async()=>{ try{
       await api('/api/content/'+id,{method:'PATCH',json:{title:$('#ecTitle').value.trim(),duration:+$('#ecDur').value||10}});
       closeModal(); toast('Content updated'); renderContent(); }catch(e){ toast(e.message);} }}]);
@@ -315,17 +315,53 @@ function resetPwModal(id,email){
 // ============ SCREEN PREVIEW / STOP ============
 async function previewScreen(id,name){
   let d; try{ d=await api('/api/screens/'+id+'/nowplaying'); }catch(e){ toast(e.message); return; }
+  const status=`${d.online?'🟢 online':'⚪ offline'} • ${d.paused?'⏸ paused':'▶ playing'}`;
+  // build a small live preview that cycles through the same playlist the TV plays
+  const pl=JSON.stringify(d.playlist||[]).replace(/</g,'\\u003c');
   const items=(d.playlist||[]).map((it,i)=>`<div class="chk-row">
     <div class="mini" style="display:grid;place-items:center;color:#fff">${it.type==='video'?'▶':it.type==='website'?'🌐':'🖼'}</div>
     <div><div style="font-weight:600;font-size:13px">${i+1}. ${esc(it.title||'item')}</div>
-    <div style="color:var(--muted);font-size:12px">${it.type} • ${it.duration||''}s</div></div></div>`).join('') || '<p style="color:var(--muted)">Nothing assigned yet.</p>';
-  const status=`${d.online?'🟢 online':'⚪ offline'} • ${d.paused?'⏸ paused':'▶ playing'}`;
-  openModal('Now playing — '+name, `
+    <div style="color:var(--muted);font-size:12px">${it.type} • ${(it.duration?it.duration+'s':'full')}</div></div></div>`).join('') || '<p style="color:var(--muted)">Nothing assigned yet.</p>';
+  openModal('Live preview — '+name, `
     <div style="margin-bottom:10px;color:var(--muted)">${status}</div>
-    <div class="chk-list">${items}</div>`,
+    <div id="pvBox" style="width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;overflow:hidden;display:grid;place-items:center;position:relative">
+      <div id="pvStage" style="width:100%;height:100%"></div>
+      ${d.paused?'<div style="position:absolute;color:#9ca3af;font-size:18px">⏸ Paused</div>':''}
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin:8px 0 4px">Playlist (${(d.playlist||[]).length})</div>
+    <div class="chk-list" style="max-height:150px">${items}</div>`,
     [{label:d.paused?'▶ Resume screen':'⏸ Stop screen',cls:d.paused?'btn':'btn red',fn:async()=>{
       try{ await api('/api/screens/'+id,{method:'PATCH',json:{paused:d.paused?0:1}});
         closeModal(); toast(d.paused?'Screen resumed':'Screen stopped'); renderScreens(); }catch(e){ toast(e.message);} }}]);
+  // start the mini preview loop (muted, like a thumbnail of the live screen)
+  if(!d.paused) startPreview(JSON.parse(pl));
+}
+let _pvTimer=null, _pvIdx=0;
+function startPreview(list){
+  const stage=document.getElementById('pvStage'); if(!stage) return;
+  clearTimeout(_pvTimer); _pvIdx=0;
+  function step(){
+    const st=document.getElementById('pvStage'); if(!st){ clearTimeout(_pvTimer); return; }
+    if(!list.length){ st.innerHTML='<div style="color:#6b7280;display:grid;place-items:center;height:100%">No content</div>'; return; }
+    const it=list[_pvIdx%list.length]; _pvIdx++;
+    st.innerHTML='';
+    if(it.type==='video'){
+      const v=document.createElement('video'); v.src=it.url; v.autoplay=true; v.muted=true; v.playsInline=true;
+      v.style.cssText='width:100%;height:100%;object-fit:contain';
+      const dur=Number(it.duration)||0;
+      if(dur>0){ v.loop=true; _pvTimer=setTimeout(step,Math.min(dur,15)*1000); }
+      else { v.onended=step; _pvTimer=setTimeout(step,15000); } // cap preview clip at 15s
+      v.onerror=()=>{_pvTimer=setTimeout(step,2000);}; st.appendChild(v); v.play().catch(()=>{});
+    } else if(it.type==='website'){
+      const f=document.createElement('iframe'); f.src=it.url; f.style.cssText='width:100%;height:100%;border:0';
+      f.setAttribute('allow','autoplay; encrypted-media'); st.appendChild(f);
+      _pvTimer=setTimeout(step,Math.min(it.duration||10,12)*1000);
+    } else {
+      const img=document.createElement('img'); img.src=it.url; img.style.cssText='width:100%;height:100%;object-fit:contain';
+      st.appendChild(img); _pvTimer=setTimeout(step,Math.min(it.duration||8,10)*1000);
+    }
+  }
+  step();
 }
 
 // ============ MODAL ============
@@ -338,7 +374,7 @@ function openModal(title,bodyHTML,actions=[]){
   foot.appendChild(Object.assign(el('button','btn ghost sm','Cancel'),{onclick:closeModal}));
   actions.forEach(a=>{ const b=el('button',(a.cls||'btn')+' sm',a.label); b.onclick=a.fn; foot.appendChild(b); });
 }
-function closeModal(){ $('#modalRoot').innerHTML=''; }
+function closeModal(){ try{ clearTimeout(_pvTimer); }catch(e){} $('#modalRoot').innerHTML=''; }
 
 // ============ BOOT ============
 (async function boot(){
