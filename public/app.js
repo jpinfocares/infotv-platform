@@ -332,7 +332,9 @@ async function previewScreen(id,name){
     <div class="chk-list" style="max-height:150px">${items}</div>`,
     [{label:d.paused?'▶ Resume screen':'⏸ Stop screen',cls:d.paused?'btn':'btn red',fn:async()=>{
       try{ await api('/api/screens/'+id,{method:'PATCH',json:{paused:d.paused?0:1}});
-        closeModal(); toast(d.paused?'Screen resumed':'Screen stopped'); renderScreens(); }catch(e){ toast(e.message);} }}]);
+        toast(d.paused?'Screen resumed':'Screen stopped'); renderScreens();
+        previewScreen(id,name); // refresh the preview in place (shows paused/playing, toggles button)
+      }catch(e){ toast(e.message);} }}]);
   // start the mini preview loop (muted, like a thumbnail of the live screen)
   if(!d.paused) startPreview(JSON.parse(pl));
 }
@@ -367,7 +369,7 @@ function startPreview(list){
 // ============ MODAL ============
 function openModal(title,bodyHTML,actions=[]){
   const root=$('#modalRoot');
-  root.innerHTML=`<div class="overlay" onclick="if(event.target===this)closeModal()">
+  root.innerHTML=`<div class="overlay">
     <div class="modal"><header>${esc(title)}<button class="x" onclick="closeModal()">×</button></header>
     <div class="body">${bodyHTML}</div><div class="foot" id="modalFoot"></div></div></div>`;
   const foot=$('#modalFoot');
