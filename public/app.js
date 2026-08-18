@@ -279,18 +279,30 @@ async function renderAdmin(){
   let users;
   try{ users=await api('/api/admin/users'); }
   catch(e){ $('#userList').innerHTML='<div class="empty"><h3>Admins only</h3><p>'+esc(e.message)+'</p></div>'; return; }
-  // pending screens for approval
+  // screens: pending approval + all screens with per-screen dates
   try{
     const screens=await api('/api/admin/screens');
     const pend=screens.filter(s=>!s.approved);
+    let sh='';
     if(pend.length){
-      $('#pendingScreens').innerHTML=`<h3 style="margin:6px 0 10px;color:var(--red)">Screens waiting for approval (${pend.length})</h3><div class="chk-list">`+
+      sh+=`<h3 style="margin:6px 0 10px;color:var(--red)">Screens waiting for approval (${pend.length})</h3><div class="chk-list">`+
         pend.map(s=>`<div class="chk-row" style="justify-content:space-between">
           <div><div style="font-weight:600">${esc(s.name||'Screen')}</div>
           <div style="color:var(--muted);font-size:12px">${esc(s.owner_email)} • seen ${ago(s.last_seen)||'never'}</div></div>
           <div style="display:flex;gap:6px"><button class="btn sm" onclick="approveScreen(${s.id},1)">Approve</button>
           <button class="btn sm ghost" onclick="approveScreen(${s.id},0)">Reject</button></div></div>`).join('')+`</div>`;
-    } else { $('#pendingScreens').innerHTML=''; }
+    }
+    const appr=screens.filter(s=>s.approved);
+    if(appr.length){
+      sh+=`<h3 style="margin:18px 0 10px">All screens (${appr.length})</h3><div class="chk-list">`+
+        appr.map(s=>`<div class="chk-row" style="justify-content:space-between">
+          <div><div style="font-weight:600">${esc(s.name||'Screen')} ${s.active?'':'<span class="pill grey">expired</span>'} ${s.paused?'<span class="pill grey">stopped</span>':''}</div>
+          <div style="color:var(--muted);font-size:12px">${esc(s.owner_email)} ${s.expiry_date?('• expires '+s.expiry_date):'• no expiry'}</div></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm ghost" onclick="screenDatesModal(${s.id})">Dates</button>
+          <button class="btn sm ghost" onclick="approveScreen(${s.id},0)">Revoke</button></div></div>`).join('')+`</div>`;
+    }
+    $('#pendingScreens').innerHTML=sh;
+    window._adminScreens=screens;
   }catch(e){}
   const pending=users.filter(u=>!u.approved);
   const active=users.filter(u=>u.approved);
@@ -310,7 +322,18 @@ async function renderAdmin(){
   $('#userList').innerHTML=html;
   window._adminUsers=users;
 }
-async function approveScreen(id,val){ try{ await api('/api/admin/screens/'+id,{method:'PATCH',json:{approved:val}}); toast(val?'Screen approved':'Screen rejected'); renderAdmin(); }catch(e){ toast(e.message);} }
+async function approveScreen(id,val){ try{ await api('/api/admin/screens/'+id,{method:'PATCH',json:{approved:val}}); toast(val?'Screen approved':'Screen revoked'); renderAdmin(); }catch(e){ toast(e.message);} }
+function screenDatesModal(sid){
+  const s=(window._adminScreens||[]).find(x=>x.id===sid); if(!s)return;
+  openModal('Screen dates — '+esc(s.name||'Screen'), `
+    <div style="color:var(--muted);font-size:13px;margin-bottom:10px">${esc(s.owner_email)}</div>
+    <div class="field"><label>Start date (blank = active now)</label><input id="scStart" type="date" value="${s.start_date||''}"></div>
+    <div class="field"><label>Expiry date (blank = never expires)</label><input id="scExpiry" type="date" value="${s.expiry_date||''}"></div>
+    <div style="font-size:12px;color:var(--muted)">Tip: for a 1-year plan, set expiry one year from today.</div>`,
+    [{label:'Save dates',cls:'btn',fn:async()=>{ try{
+      await api('/api/admin/screens/'+sid,{method:'PATCH',json:{start_date:$('#scStart').value,expiry_date:$('#scExpiry').value}});
+      closeModal(); toast('Screen dates updated'); renderAdmin(); }catch(e){ toast(e.message);} }}]);
+}
 function planModal(uid){
   const u=(window._adminUsers||[]).find(x=>x.id===uid); if(!u)return;
   openModal('Plan — '+esc(u.email), `
