@@ -184,7 +184,7 @@ app.post('/api/websites', auth, (req, res) => {
   if (!url) return res.status(400).json({ error: 'A website URL is required' });
   const isYT = /youtube\.com|youtu\.be/.test(url);
   const finalUrl = isYT ? (youtubeEmbed(url) || url) : url;
-  res.json(store.insert('websites', { user_id: req.user.id, title: title || url, url: finalUrl, duration: duration || 20 }));
+  res.json(store.insert('websites', { user_id: req.user.id, title: title || url, url: finalUrl, duration: Number(duration) || 0 }));
 });
 app.delete('/api/websites/:id', auth, (req, res) => {
   const id = +req.params.id;
@@ -198,7 +198,7 @@ app.patch('/api/websites/:id', auth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'Website not found' });
   const patch = {};
   if (req.body.title !== undefined) patch.title = req.body.title;
-  if (req.body.duration !== undefined) patch.duration = +req.body.duration || 20;
+  if (req.body.duration !== undefined) patch.duration = Number(req.body.duration) || 0;
   if (req.body.url !== undefined) {
     const isYT = /youtube\.com|youtu\.be/.test(req.body.url);
     patch.url = isYT ? (youtubeEmbed(req.body.url) || req.body.url) : req.body.url;
