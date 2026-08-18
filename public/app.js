@@ -137,7 +137,7 @@ async function renderScreens(){
     const gname=(groups.find(x=>x.id===s.group_id)||{}).name;
     const online = s.last_seen && (Date.now()-new Date(s.last_seen+'Z'))<120000;
     return `<div class="card"><div class="thumb"><div class="icon-stack">🖥️</div>
-      <span class="badge">${s.paused?'⏸ stopped':(online?'🟢 online':'⚪ offline')}</span></div>
+      <span class="badge">${!s.approved?'⏳ awaiting approval':(s.paused?'⏸ stopped':(online?'🟢 online':'⚪ offline'))}</span></div>
       <div class="card-body"><p class="title">${esc(s.name||'Screen')}</p>
         <div class="meta">${gname?('Group: '+esc(gname)):'No group'} • seen ${ago(s.last_seen)||'never'}</div></div>
       <div class="card-actions">
@@ -272,27 +272,54 @@ async function assignModal(targetType,targetId,name){
 // ============ ADMIN (users) ============
 async function renderAdmin(){
   const v=$('#view');
-  v.innerHTML=`<div class="page-head"><h1>Admin — Users</h1><div class="spacer"></div>
+  v.innerHTML=`<div class="page-head"><h1>Admin</h1><div class="spacer"></div>
     <div class="toolbar"><button class="btn sm" onclick="addUserModal()">Add user</button></div></div>
+    <div id="pendingScreens"></div>
     <div id="userList"></div>`;
   let users;
   try{ users=await api('/api/admin/users'); }
   catch(e){ $('#userList').innerHTML='<div class="empty"><h3>Admins only</h3><p>'+esc(e.message)+'</p></div>'; return; }
+  // pending screens for approval
+  try{
+    const screens=await api('/api/admin/screens');
+    const pend=screens.filter(s=>!s.approved);
+    if(pend.length){
+      $('#pendingScreens').innerHTML=`<h3 style="margin:6px 0 10px;color:var(--red)">Screens waiting for approval (${pend.length})</h3><div class="chk-list">`+
+        pend.map(s=>`<div class="chk-row" style="justify-content:space-between">
+          <div><div style="font-weight:600">${esc(s.name||'Screen')}</div>
+          <div style="color:var(--muted);font-size:12px">${esc(s.owner_email)} • seen ${ago(s.last_seen)||'never'}</div></div>
+          <div style="display:flex;gap:6px"><button class="btn sm" onclick="approveScreen(${s.id},1)">Approve</button>
+          <button class="btn sm ghost" onclick="approveScreen(${s.id},0)">Reject</button></div></div>`).join('')+`</div>`;
+    } else { $('#pendingScreens').innerHTML=''; }
+  }catch(e){}
   const pending=users.filter(u=>!u.approved);
   const active=users.filter(u=>u.approved);
   const row=u=>`<div class="chk-row" style="justify-content:space-between">
-    <div><div style="font-weight:600">${esc(u.name||u.email)} ${u.role==='admin'?'<span class="pill">admin</span>':''} ${u.approved?'<span class="pill green">approved</span>':'<span class="pill grey">pending</span>'}</div>
-      <div style="color:var(--muted);font-size:12px">${esc(u.email)} • joined ${ago(u.created_at)}</div></div>
+    <div><div style="font-weight:600">${esc(u.name||u.email)} ${u.role==='admin'?'<span class="pill">admin</span>':''} ${u.approved?'<span class="pill green">approved</span>':'<span class="pill grey">pending</span>'} ${u.active?'':'<span class="pill grey">expired</span>'}</div>
+      <div style="color:var(--muted);font-size:12px">${esc(u.email)} • screens ${u.screens_used}/${u.screen_limit||'∞'} ${u.sub_expiry?('• expires '+u.sub_expiry):''}</div></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
+      ${u.role!=='admin'?`<button class="btn sm ghost" onclick="planModal(${u.id})">Plan</button>`:''}
       ${u.approved?`<button class="btn sm ghost" onclick="setApprove(${u.id},0)">Suspend</button>`
                   :`<button class="btn sm" onclick="setApprove(${u.id},1)">Approve</button>`}
       <button class="btn sm ghost" onclick="resetPwModal(${u.id},'${esc(u.email)}')">Password</button>
       ${u.id!==me.id?`<button class="kebab" onclick="delUser(${u.id})" title="Delete">🗑</button>`:''}
     </div></div>`;
   let html='';
-  if(pending.length){ html+=`<h3 style="margin:10px 0">Pending approval (${pending.length})</h3><div class="chk-list">${pending.map(row).join('')}</div>`; }
+  if(pending.length){ html+=`<h3 style="margin:10px 0">Pending users (${pending.length})</h3><div class="chk-list">${pending.map(row).join('')}</div>`; }
   html+=`<h3 style="margin:18px 0 10px">All users (${active.length})</h3><div class="chk-list">${active.map(row).join('')}</div>`;
   $('#userList').innerHTML=html;
+  window._adminUsers=users;
+}
+async function approveScreen(id,val){ try{ await api('/api/admin/screens/'+id,{method:'PATCH',json:{approved:val}}); toast(val?'Screen approved':'Screen rejected'); renderAdmin(); }catch(e){ toast(e.message);} }
+function planModal(uid){
+  const u=(window._adminUsers||[]).find(x=>x.id===uid); if(!u)return;
+  openModal('Plan — '+esc(u.email), `
+    <div class="field"><label>Screen limit (0 = unlimited)</label><input id="plLimit" type="number" min="0" value="${u.screen_limit}"></div>
+    <div class="field"><label>Subscription start (leave blank = no start limit)</label><input id="plStart" type="date" value="${u.sub_start||''}"></div>
+    <div class="field"><label>Subscription expiry (leave blank = never expires)</label><input id="plExpiry" type="date" value="${u.sub_expiry||''}"></div>`,
+    [{label:'Save plan',cls:'btn',fn:async()=>{ try{
+      await api('/api/admin/users/'+uid,{method:'PATCH',json:{screen_limit:+$('#plLimit').value||0,sub_start:$('#plStart').value,sub_expiry:$('#plExpiry').value}});
+      closeModal(); toast('Plan updated'); renderAdmin(); }catch(e){ toast(e.message);} }}]);
 }
 async function setApprove(id,val){ try{ await api('/api/admin/users/'+id,{method:'PATCH',json:{approved:val}}); toast(val?'User approved':'User suspended'); renderAdmin(); }catch(e){ toast(e.message);} }
 async function delUser(id){ if(!confirm('Delete this user permanently?'))return; try{ await api('/api/admin/users/'+id,{method:'DELETE'}); renderAdmin(); }catch(e){ toast(e.message);} }
