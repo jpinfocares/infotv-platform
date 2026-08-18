@@ -87,7 +87,8 @@ function next(){
     f.setAttribute('allow','autoplay; encrypted-media; fullscreen; picture-in-picture');
     f.setAttribute('allowfullscreen','');
     st.appendChild(f);
-    timer=setTimeout(next,(item.duration||20)*1000);
+    // if this is the ONLY item, let it play/loop on its own (don't restart it every N sec)
+    if(playlist.length>1){ timer=setTimeout(next,(item.duration||20)*1000); }
   }else{
     const img=document.createElement('img'); img.src=item.url; st.appendChild(img);
     timer=setTimeout(next,(item.duration||10)*1000);
