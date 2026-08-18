@@ -68,7 +68,17 @@ function next(){
   st.innerHTML='';
   if(item.type==='video'){
     const v=document.createElement('video'); v.src=item.url; v.autoplay=true; v.muted=false; v.volume=1; v.playsInline=true;
-    v.onended=()=>next(); v.onerror=()=>timer=setTimeout(next,3000); st.appendChild(v);
+    var dur=Number(item.duration)||0;
+    if(dur>0){
+      // loop the video for the given number of seconds, then move on
+      v.loop=true;
+      timer=setTimeout(next, dur*1000);
+    } else {
+      // no seconds set = play the FULL video once, then move on
+      v.loop=false;
+      v.onended=()=>next();
+    }
+    v.onerror=()=>timer=setTimeout(next,3000); st.appendChild(v);
     window._cur=v;
     var p=v.play();
     if(p&&p.catch){ p.catch(function(){ v.muted=true; v.play().catch(function(){}); }); }
