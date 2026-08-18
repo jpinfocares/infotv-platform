@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = path.join(process.env.DATA_ROOT || __dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const FILE = path.join(DATA_DIR, 'db.json');
 
