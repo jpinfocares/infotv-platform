@@ -15,11 +15,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-in-production';
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// ---------- file uploads ----------
+// ---------- file uploads (persistent disk aware) ----------
 const UPLOAD_DIR = path.join(process.env.DATA_ROOT || __dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+app.use('/uploads', express.static(UPLOAD_DIR));
+
+// ---------- file uploads ----------
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOAD_DIR),
   filename: (req, file, cb) => {
@@ -332,7 +334,7 @@ app.get('/api/screens/:id/nowplaying', auth, (req, res) => {
   if (!screen) return res.status(404).json({ error: 'Screen not found' });
   const online = screen.last_seen && (Date.now() - new Date(screen.last_seen + 'Z').getTime()) < 120000;
   res.json({
-    id: screen.id, name: screen.name, paused: !!screen.paused, online,
+    id: screen.id, name: screen.name, device_id: screen.device_id, paused: !!screen.paused, online,
     last_seen: screen.last_seen || null, playlist: resolvePlaylist(screen, req)
   });
 });
