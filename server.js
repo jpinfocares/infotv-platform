@@ -99,6 +99,14 @@ function screenLimit(user) {
   if (user.role === 'admin') return 0; // 0 = unlimited
   return user.screen_limit == null ? 1 : Number(user.screen_limit);
 }
+function screenActive(screen) {
+  // per-screen date window (independent of user subscription)
+  if (!screen) return false;
+  const now = Date.now();
+  if (screen.start_date) { const s = new Date(screen.start_date + 'T00:00:00Z').getTime(); if (!isNaN(s) && now < s) return false; }
+  if (screen.expiry_date) { const e = new Date(screen.expiry_date + 'T23:59:59Z').getTime(); if (!isNaN(e) && now > e) return false; }
+  return true;
+}
 
 // ================= ADMIN: USER MANAGEMENT =================
 app.get('/api/admin/users', auth, admin, (req, res) => {
@@ -153,7 +161,8 @@ app.get('/api/admin/screens', auth, admin, (req, res) => {
       id: s.id, name: s.name, device_id: s.device_id,
       owner_email: owner ? owner.email : '(none)',
       approved: s.approved ? 1 : 0, paused: s.paused ? 1 : 0,
-      last_seen: s.last_seen || null
+      start_date: s.start_date || '', expiry_date: s.expiry_date || '',
+      active: screenActive(s), last_seen: s.last_seen || null
     };
   }).reverse();
   res.json(rows);
@@ -165,6 +174,8 @@ app.patch('/api/admin/screens/:id', auth, admin, (req, res) => {
   const patch = {};
   if (req.body.approved !== undefined) patch.approved = req.body.approved ? 1 : 0;
   if (req.body.paused !== undefined) patch.paused = req.body.paused ? 1 : 0;
+  if (req.body.start_date !== undefined) patch.start_date = req.body.start_date || '';
+  if (req.body.expiry_date !== undefined) patch.expiry_date = req.body.expiry_date || '';
   store.update('screens', id, patch);
   res.json({ ok: true });
 });
@@ -378,6 +389,7 @@ app.get('/api/player/state', (req, res) => {
   const owner = store.find('users', u => u.id === screen.user_id);
   if (!screen.approved) return res.json({ paired: true, name: screen.name, blocked: 'Waiting for admin approval', playlist: [] });
   if (!subActive(owner)) return res.json({ paired: true, name: screen.name, blocked: 'Subscription expired — contact admin', playlist: [] });
+  if (!screenActive(screen)) return res.json({ paired: true, name: screen.name, blocked: 'This screen has expired — contact admin', playlist: [] });
   if (screen.paused) return res.json({ paired: true, name: screen.name, paused: true, playlist: [] });
   res.json({ paired: true, name: screen.name, paused: false, playlist: resolvePlaylist(screen, req) });
 });
