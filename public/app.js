@@ -186,7 +186,8 @@ async function renderGroups(){
     <button class="btn sm" style="margin:0 auto" onclick="groupModal()">Add screen group</button></div>`; return; }
   g.innerHTML=groups.map(gr=>`<div class="card"><div class="thumb"><div class="icon-stack">🗂️</div></div>
     <div class="card-body"><p class="title">${esc(gr.name)}</p><div class="meta">${gr.screen_count} screen(s)</div></div>
-    <div class="card-actions"><button class="btn sm ghost" onclick="assignModal('group',${gr.id},'${esc(gr.name)}')">Assign content</button>
+    <div class="card-actions"><span><button class="btn sm ghost" onclick="previewGroup(${gr.id},'${esc(gr.name).replace(/'/g,"\\'")}')">Preview</button>
+      <button class="btn sm ghost" onclick="assignModal('group',${gr.id},'${esc(gr.name)}')">Assign</button></span>
       <span><button class="kebab" onclick="editGroup(${gr.id},'${esc(gr.name).replace(/'/g,"\\'")}')" title="Rename">✏️</button>
       <button class="kebab" onclick="delGroup(${gr.id})" title="Delete">🗑</button></span></div></div>`).join('');
 }
@@ -373,18 +374,68 @@ async function previewScreen(id,name){
     <div style="color:var(--muted);font-size:12px">${it.type} • ${(it.duration?it.duration+'s':'full')}</div></div></div>`).join('') || '<p style="color:var(--muted)">Nothing assigned yet.</p>';
   // live mirror: embed the SAME player, locked to this screen's device, muted preview
   const mirror = d.device_id
-    ? `<iframe src="/player.html?device_id=${encodeURIComponent(d.device_id)}&preview=1" style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000"></iframe>`
+    ? `<iframe id="pvFrame" src="/player.html?device_id=${encodeURIComponent(d.device_id)}&preview=1" style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000"></iframe>`
     : `<div style="width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;display:grid;place-items:center;color:#6b7280">Not connected</div>`;
+  const controls = d.device_id ? `
+    <div style="display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap">
+      <button class="btn sm ghost" onclick="pvCmd('prev')" title="Previous">⏮ Prev</button>
+      <button class="btn sm ghost" onclick="pvCmd('next')" title="Next">Next ⏭</button>
+      <button class="btn sm ghost" id="pvVol" onclick="pvToggleVol(this)" title="Sound">🔇 Unmute</button>
+      <span style="color:var(--muted);font-size:12px">Now playing: <b id="pvNow">…</b></span>
+    </div>` : '';
   openModal('Live preview — '+name, `
     <div style="margin-bottom:10px;color:var(--muted)">${status} — shows exactly what's on the TV</div>
     ${mirror}
-    <div style="font-size:12px;color:var(--muted);margin:10px 0 4px">Playlist (${(d.playlist||[]).length})</div>
-    <div class="chk-list" style="max-height:150px">${items}</div>`,
+    ${controls}
+    <div style="font-size:12px;color:var(--muted);margin:6px 0 4px">Playlist (${(d.playlist||[]).length})</div>
+    <div class="chk-list" style="max-height:130px">${items}</div>`,
     [{label:d.paused?'▶ Resume screen':'⏸ Stop screen',cls:d.paused?'btn':'btn red',fn:async()=>{
       try{ await api('/api/screens/'+id,{method:'PATCH',json:{paused:d.paused?0:1}});
         toast(d.paused?'Screen resumed':'Screen stopped'); renderScreens();
         previewScreen(id,name); // refresh in place (button toggles, mirror reflects state)
       }catch(e){ toast(e.message);} }}]);
+  // listen for now-playing updates from the preview player
+  window._pvListener && window.removeEventListener('message', window._pvListener);
+  window._pvListener=function(e){ const m=e.data||{}; if(m.infotv==='now'){ const el=document.getElementById('pvNow'); if(el) el.textContent=(m.title||'(item)')+' — '+(m.index+1)+'/'+m.total; } };
+  window.addEventListener('message', window._pvListener);
+}
+function pvCmd(cmd){ const f=document.getElementById('pvFrame'); if(f&&f.contentWindow) f.contentWindow.postMessage({infotvCmd:cmd},'*'); }
+function pvToggleVol(btn){
+  const on = btn.getAttribute('data-on')==='1';
+  if(on){ pvCmd('mute'); btn.textContent='🔇 Unmute'; btn.setAttribute('data-on','0'); }
+  else { pvCmd('unmute'); btn.textContent='🔊 Mute'; btn.setAttribute('data-on','1'); }
+}
+async function previewGroup(id,name){
+  let d; try{ d=await api('/api/groups/'+id+'/nowplaying'); }catch(e){ toast(e.message); return; }
+  const items=(d.playlist||[]).map((it,i)=>`<div class="chk-row">
+    <div class="mini" style="display:grid;place-items:center;color:#fff">${it.type==='video'?'▶':it.type==='website'?'🌐':'🖼'}</div>
+    <div><div style="font-weight:600;font-size:13px">${i+1}. ${esc(it.title||'item')}</div>
+    <div style="color:var(--muted);font-size:12px">${it.type} • ${(it.duration?it.duration+'s':'full')}</div></div></div>`).join('') || '<p style="color:var(--muted)">Nothing assigned to this group yet.</p>';
+  const hasItems=(d.playlist||[]).length>0;
+  const mirror = hasItems
+    ? `<iframe id="pvFrame" src="/player.html?adhoc=1&preview=1" style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000"></iframe>`
+    : `<div style="width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;display:grid;place-items:center;color:#6b7280">No content assigned</div>`;
+  const controls = hasItems ? `
+    <div style="display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap">
+      <button class="btn sm ghost" onclick="pvCmd('prev')">⏮ Prev</button>
+      <button class="btn sm ghost" onclick="pvCmd('next')">Next ⏭</button>
+      <button class="btn sm ghost" id="pvVol" onclick="pvToggleVol(this)">🔇 Unmute</button>
+      <span style="color:var(--muted);font-size:12px">Now playing: <b id="pvNow">…</b></span>
+    </div>` : '';
+  openModal('Group preview — '+name, `
+    <div style="margin-bottom:10px;color:var(--muted)">Preview of everything assigned to this group</div>
+    ${mirror}${controls}
+    <div style="font-size:12px;color:var(--muted);margin:6px 0 4px">Playlist (${(d.playlist||[]).length})</div>
+    <div class="chk-list" style="max-height:130px">${items}</div>`, []);
+  // push the playlist to the adhoc player once it loads, and listen for now-playing
+  if(hasItems){
+    const f=document.getElementById('pvFrame');
+    const send=()=>{ try{ f.contentWindow.postMessage({infotvPlaylist:d.playlist},'*'); }catch(e){} };
+    f.addEventListener('load',send); setTimeout(send,600);
+    window._pvListener && window.removeEventListener('message', window._pvListener);
+    window._pvListener=function(e){ const m=e.data||{}; if(m.infotv==='now'){ const el=document.getElementById('pvNow'); if(el) el.textContent=(m.title||'(item)')+' — '+(m.index+1)+'/'+m.total; } };
+    window.addEventListener('message', window._pvListener);
+  }
 }
 
 // ============ MODAL ============
