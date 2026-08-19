@@ -361,10 +361,7 @@ function baseUrl(req) {
   const proto = host.startsWith('localhost') || host.startsWith('127.') ? req.protocol : 'https';
   return `${proto}://${host}`;
 }
-function resolvePlaylist(screen, req) {
-  let rows = store.all('playlist', p => p.target_type === 'screen' && p.target_id === screen.id);
-  if (rows.length === 0 && screen.group_id)
-    rows = store.all('playlist', p => p.target_type === 'group' && p.target_id === screen.group_id);
+function mapRows(rows, req) {
   rows.sort((a, b) => a.position - b.position);
   const base = baseUrl(req);
   return rows.map(r => {
@@ -378,6 +375,15 @@ function resolvePlaylist(screen, req) {
       return { kind: 'website', type: 'website', url: w.url, duration: w.duration || 20, title: w.title };
     }
   }).filter(Boolean);
+}
+function resolvePlaylist(screen, req) {
+  let rows = store.all('playlist', p => p.target_type === 'screen' && p.target_id === screen.id);
+  if (rows.length === 0 && screen.group_id)
+    rows = store.all('playlist', p => p.target_type === 'group' && p.target_id === screen.group_id);
+  return mapRows(rows, req);
+}
+function resolveGroupPlaylist(groupId, req) {
+  return mapRows(store.all('playlist', p => p.target_type === 'group' && p.target_id === groupId), req);
 }
 
 app.get('/api/player/state', (req, res) => {
@@ -404,6 +410,13 @@ app.get('/api/screens/:id/nowplaying', auth, (req, res) => {
     id: screen.id, name: screen.name, device_id: screen.device_id, paused: !!screen.paused, online,
     last_seen: screen.last_seen || null, playlist: resolvePlaylist(screen, req)
   });
+});
+
+app.get('/api/groups/:id/nowplaying', auth, (req, res) => {
+  const id = +req.params.id;
+  const g = store.find('groups', x => x.id === id && x.user_id === req.user.id);
+  if (!g) return res.status(404).json({ error: 'Group not found' });
+  res.json({ id: g.id, name: g.name, playlist: resolveGroupPlaylist(g.id, req) });
 });
 
 app.get('/health', (req, res) => res.json({ ok: true, app: 'INFO TV APP' }));
