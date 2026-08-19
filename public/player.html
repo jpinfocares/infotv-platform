@@ -27,8 +27,27 @@
 const DEVICE_KEY='infotv_device_id';
 const _params=new URLSearchParams(location.search);
 const PREVIEW=_params.get('preview')==='1';
+const ADHOC=_params.get('adhoc')==='1';
 let deviceId=_params.get('device_id')||localStorage.getItem(DEVICE_KEY)||null;
 let playlist=[], idx=0, timer=null, lastKey='';
+let _srvVolume=null, _lastCmdSeq=0, _curType='';
+function ytPost(func,args){ try{ var f=window._curFrame; if(f&&f.contentWindow) f.contentWindow.postMessage(JSON.stringify({event:'command',func:func,args:args||[]}),'*'); }catch(e){} }
+function applyVolume(vol){
+  if(vol==null) return;
+  if(_curType==='yt'){ ytPost('setVolume',[Math.round(vol*100)]); if(vol>0) ytPost('unMute',[]); else ytPost('mute',[]); }
+  else if(_curType==='video' && window._cur){ try{ window._cur.volume=vol; window._cur.muted=(vol===0); if(vol>0) window._cur.play&&window._cur.play().catch(()=>{}); }catch(e){} }
+}
+function applyCmd(c){
+  if(!c) return;
+  if(c.action==='next'){ clearTimeout(timer); next(); return; }
+  if(c.action==='prev'){ prevItem(); return; }
+  if(c.action==='pause'){ if(_curType==='yt') ytPost('pauseVideo',[]); else if(window._cur&&window._cur.pause){try{window._cur.pause();}catch(e){}} return; }
+  if(c.action==='play'){ if(_curType==='yt') ytPost('playVideo',[]); else if(window._cur&&window._cur.play){try{window._cur.play();}catch(e){}} return; }
+  if(c.seek!=null){
+    if(_curType==='video' && window._cur){ try{ var d=window._cur.duration||0; if(d) window._cur.currentTime=d*c.seek; }catch(e){} }
+    else if(_curType==='yt'){ ytPost('seekTo',[Math.max(0,c.seek)*600, true]); }
+  }
+}
 
 async function register(){
   try{
@@ -52,6 +71,8 @@ async function poll(){
     if(!d.paired){ showPair(d.pair_code); return; }
     if(d.blocked){ showBlocked(d.blocked); return; }
     if(d.paused){ showPaused(); return; }
+    if(d.volume!==undefined && d.volume!==null){ _srvVolume=d.volume; applyVolume(_srvVolume); }
+    if(d.cmd && d.cmd.seq && d.cmd.seq>_lastCmdSeq){ _lastCmdSeq=d.cmd.seq; applyCmd(d.cmd); }
     const key=JSON.stringify(d.playlist);
     if(key!==lastKey){ lastKey=key; playlist=d.playlist||[]; idx=0; startShow(); }
   }catch(e){ /* network blip — keep current content playing, retry next tick */ }
@@ -81,11 +102,16 @@ function startShow(){
   if(!playlist.length){ st.innerHTML='<div style="color:#6b7280">No content assigned yet</div>'; return; }
   next();
 }
+let _pvUnmute=false;
 function next(){
   const st=document.getElementById('stage'); const item=playlist[idx%playlist.length]; idx++;
+  window._curItem=item; window._curIsWeb=(item.type==='website');
   st.innerHTML='';
   if(item.type==='video'){
-    const v=document.createElement('video'); v.src=item.url; v.autoplay=true; v.muted=PREVIEW?true:false; v.volume=PREVIEW?0:1; v.playsInline=true;
+    _curType='video'; window._curFrame=null;
+    const vmuted = PREVIEW ? !_pvUnmute : false;
+    const v=document.createElement('video'); v.src=item.url; v.autoplay=true; v.muted=vmuted; v.volume=vmuted?0:1; v.playsInline=true;
+    if(_srvVolume!=null){ v.muted=(_srvVolume===0); v.volume=_srvVolume; }
     var dur=Number(item.duration)||0;
     if(dur>0){
       // loop the video for the given number of seconds, then move on
@@ -101,22 +127,69 @@ function next(){
     var p=v.play();
     if(p&&p.catch){ p.catch(function(){ v.muted=true; v.play().catch(function(){}); }); }
   }else if(item.type==='website'){
-    const f=document.createElement('iframe'); f.src=PREVIEW?item.url.replace('mute=0','mute=1'):item.url;
+    const wantMute = PREVIEW && !_pvUnmute;
+    let src = wantMute?item.url.replace('mute=0','mute=1'):item.url;
+    const isYT = /youtube|youtu\.be/.test(src);
+    if(isYT && src.indexOf('enablejsapi')<0){ src += (src.indexOf('?')<0?'?':'&')+'enablejsapi=1'; }
+    _curType = isYT ? 'yt' : 'web';
+    const f=document.createElement('iframe'); f.src=src;
     f.setAttribute('allow','autoplay; encrypted-media; fullscreen; picture-in-picture');
     f.setAttribute('allowfullscreen','');
-    st.appendChild(f);
+    st.appendChild(f); window._cur=f; window._curFrame=f;
+    if(_srvVolume!=null){ setTimeout(function(){ applyVolume(_srvVolume); },1500); }
     // if this is the ONLY item, let it play/loop on its own (don't restart it every N sec)
     if(playlist.length>1){ timer=setTimeout(next,(item.duration||20)*1000); }
   }else{
-    const img=document.createElement('img'); img.src=item.url; st.appendChild(img);
+    _curType='image'; window._curFrame=null;
+    const img=document.createElement('img'); img.src=item.url; st.appendChild(img); window._cur=img;
     timer=setTimeout(next,(item.duration||10)*1000);
   }
+  postNow();
 }
+function postNow(){
+  try{
+    const it=window._curItem||{};
+    parent.postMessage({infotv:'now', index:((idx-1)%Math.max(playlist.length,1)), total:playlist.length, title:it.title||'', type:it.type||''}, '*');
+  }catch(e){}
+}
+function prevItem(){ clearTimeout(timer); idx-=2; while(idx<0) idx+=playlist.length; next(); }
+function reRenderCurrent(){ if(!playlist.length)return; clearTimeout(timer); idx-=1; if(idx<0)idx+=playlist.length; next(); }
+// preview remote-control from the dashboard (same-origin iframe)
+window.addEventListener('message', function(e){
+  const m=e.data||{}; 
+  if(m.infotvPlaylist!==undefined){ // adhoc playlist push (group preview)
+    document.getElementById('pair').style.display='none';
+    playlist=m.infotvPlaylist||[]; idx=0; lastKey='__adhoc__'; startShow(); return;
+  }
+  if(m.infotvCmd===undefined) return;
+  if(m.infotvCmd==='next'){ clearTimeout(timer); next(); }
+  else if(m.infotvCmd==='prev'){ prevItem(); }
+  else if(m.infotvCmd==='play'){ applyCmd({action:'play'}); }
+  else if(m.infotvCmd==='pause'){ applyCmd({action:'pause'}); }
+  else if(m.infotvCmd==='vol'){ _srvVolume=m.value; applyVolume(m.value); }
+  else if(m.infotvCmd==='seek'){ applyCmd({seek:m.value}); }
+  else if(m.infotvCmd==='unmute'){ _pvUnmute=true; _srvVolume=1;
+    if(_curType==='yt'){ ytPost('unMute',[]); ytPost('setVolume',[100]); }
+    else if(window._curIsWeb){ reRenderCurrent(); }
+    else { try{ if(window._cur){ window._cur.muted=false; window._cur.volume=1; window._cur.play&&window._cur.play().catch(()=>{}); } }catch(e){} }
+  }
+  else if(m.infotvCmd==='mute'){ _pvUnmute=false; _srvVolume=0;
+    if(_curType==='yt'){ ytPost('mute',[]); }
+    else if(window._curIsWeb){ reRenderCurrent(); }
+    else { try{ if(window._cur){ window._cur.muted=true; window._cur.volume=0; } }catch(e){} }
+  }
+});
 function unlockSound(){ try{ if(window._cur){ window._cur.muted=false; window._cur.volume=1; window._cur.play().catch(function(){}); } }catch(e){} }
 document.addEventListener('click', unlockSound);
 document.addEventListener('keydown', unlockSound);
 document.addEventListener('touchstart', unlockSound);
 async function boot(){
+  if(ADHOC){ // group preview: wait for parent to push a playlist; no server device
+    document.getElementById('pair').style.display='none';
+    document.getElementById('stage').style.display='flex';
+    document.getElementById('stage').innerHTML='<div style="color:#6b7280">Loading preview…</div>';
+    return;
+  }
   if(!deviceId){
     // new device: must register to get an id + pairing code (retry until network is up)
     let ok=false;
