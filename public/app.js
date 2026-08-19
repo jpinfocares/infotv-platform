@@ -377,11 +377,22 @@ async function previewScreen(id,name){
     ? `<iframe id="pvFrame" src="/player.html?device_id=${encodeURIComponent(d.device_id)}&preview=1" style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000"></iframe>`
     : `<div style="width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;display:grid;place-items:center;color:#6b7280">Not connected</div>`;
   const controls = d.device_id ? `
-    <div style="display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap">
-      <button class="btn sm ghost" onclick="pvCmd('prev')" title="Previous">⏮ Prev</button>
-      <button class="btn sm ghost" onclick="pvCmd('next')" title="Next">Next ⏭</button>
-      <button class="btn sm ghost" id="pvVol" onclick="pvToggleVol(this)" title="Sound">🔇 Unmute</button>
-      <span style="color:var(--muted);font-size:12px">Now playing: <b id="pvNow">…</b></span>
+    <div style="margin:10px 0;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <button class="btn sm ghost" onclick="pvCtl(${id},'prev')">⏮ Prev</button>
+        <button class="btn sm ghost" onclick="pvCtl(${id},'pause')">⏸ Pause</button>
+        <button class="btn sm ghost" onclick="pvCtl(${id},'play')">▶ Play</button>
+        <button class="btn sm ghost" onclick="pvCtl(${id},'next')">Next ⏭</button>
+        <span style="color:var(--muted);font-size:12px">Now: <b id="pvNow">…</b></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">🔊</span>
+        <input type="range" min="0" max="100" value="100" style="flex:1" oninput="pvVol(${id},this.value)">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:13px;color:var(--muted)">Seek</span>
+        <input type="range" min="0" max="100" value="0" style="flex:1" onchange="pvSeek(${id},this.value)">
+      </div>
     </div>` : '';
   openModal('Live preview — '+name, `
     <div style="margin-bottom:10px;color:var(--muted)">${status} — shows exactly what's on the TV</div>
@@ -399,12 +410,11 @@ async function previewScreen(id,name){
   window._pvListener=function(e){ const m=e.data||{}; if(m.infotv==='now'){ const el=document.getElementById('pvNow'); if(el) el.textContent=(m.title||'(item)')+' — '+(m.index+1)+'/'+m.total; } };
   window.addEventListener('message', window._pvListener);
 }
-function pvCmd(cmd){ const f=document.getElementById('pvFrame'); if(f&&f.contentWindow) f.contentWindow.postMessage({infotvCmd:cmd},'*'); }
-function pvToggleVol(btn){
-  const on = btn.getAttribute('data-on')==='1';
-  if(on){ pvCmd('mute'); btn.textContent='🔇 Unmute'; btn.setAttribute('data-on','0'); }
-  else { pvCmd('unmute'); btn.textContent='🔊 Mute'; btn.setAttribute('data-on','1'); }
-}
+function pvFrameMsg(msg){ const f=document.getElementById('pvFrame'); if(f&&f.contentWindow) f.contentWindow.postMessage(msg,'*'); }
+async function pvCtl(id,action){ pvFrameMsg({infotvCmd:action}); try{ await api('/api/screens/'+id+'/control',{json:{action:action}}); }catch(e){} }
+async function pvVol(id,val){ const v=Math.max(0,Math.min(1,val/100)); pvFrameMsg({infotvCmd:'vol',value:v}); clearTimeout(window._volT); window._volT=setTimeout(async()=>{ try{ await api('/api/screens/'+id+'/control',{json:{volume:v}}); }catch(e){} },300); }
+async function pvSeek(id,val){ const v=Math.max(0,Math.min(1,val/100)); pvFrameMsg({infotvCmd:'seek',value:v}); try{ await api('/api/screens/'+id+'/control',{json:{seek:v}}); }catch(e){} }
+function pvCmd(cmd){ pvFrameMsg({infotvCmd:cmd}); }
 async function previewGroup(id,name){
   let d; try{ d=await api('/api/groups/'+id+'/nowplaying'); }catch(e){ toast(e.message); return; }
   const items=(d.playlist||[]).map((it,i)=>`<div class="chk-row">
@@ -416,11 +426,18 @@ async function previewGroup(id,name){
     ? `<iframe id="pvFrame" src="/player.html?adhoc=1&preview=1" style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000"></iframe>`
     : `<div style="width:100%;aspect-ratio:16/9;background:#000;border-radius:10px;display:grid;place-items:center;color:#6b7280">No content assigned</div>`;
   const controls = hasItems ? `
-    <div style="display:flex;align-items:center;gap:8px;margin:10px 0;flex-wrap:wrap">
-      <button class="btn sm ghost" onclick="pvCmd('prev')">⏮ Prev</button>
-      <button class="btn sm ghost" onclick="pvCmd('next')">Next ⏭</button>
-      <button class="btn sm ghost" id="pvVol" onclick="pvToggleVol(this)">🔇 Unmute</button>
-      <span style="color:var(--muted);font-size:12px">Now playing: <b id="pvNow">…</b></span>
+    <div style="margin:10px 0;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <button class="btn sm ghost" onclick="pvCmd('prev')">⏮ Prev</button>
+        <button class="btn sm ghost" onclick="pvCmd('pause')">⏸ Pause</button>
+        <button class="btn sm ghost" onclick="pvCmd('play')">▶ Play</button>
+        <button class="btn sm ghost" onclick="pvCmd('next')">Next ⏭</button>
+        <span style="color:var(--muted);font-size:12px">Now: <b id="pvNow">…</b></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:16px">🔊</span>
+        <input type="range" min="0" max="100" value="100" style="flex:1" oninput="pvFrameMsg({infotvCmd:'vol',value:this.value/100})">
+      </div>
     </div>` : '';
   openModal('Group preview — '+name, `
     <div style="margin-bottom:10px;color:var(--muted)">Preview of everything assigned to this group</div>
