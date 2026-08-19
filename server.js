@@ -397,10 +397,28 @@ app.get('/api/player/state', (req, res) => {
   if (!subActive(owner)) return res.json({ paired: true, name: screen.name, blocked: 'Subscription expired — contact admin', playlist: [] });
   if (!screenActive(screen)) return res.json({ paired: true, name: screen.name, blocked: 'This screen has expired — contact admin', playlist: [] });
   if (screen.paused) return res.json({ paired: true, name: screen.name, paused: true, playlist: [] });
-  res.json({ paired: true, name: screen.name, paused: false, playlist: resolvePlaylist(screen, req) });
+  res.json({ paired: true, name: screen.name, paused: false,
+    volume: (screen.volume == null ? null : screen.volume),
+    cmd: screen.cmd || null,
+    playlist: resolvePlaylist(screen, req) });
 });
 
 // Admin/user preview: what a given screen is currently playing
+// Operator remote control → TV (volume persists; action/seek are one-shot commands)
+app.post('/api/screens/:id/control', auth, (req, res) => {
+  const id = +req.params.id;
+  const s = store.find('screens', x => x.id === id && x.user_id === req.user.id);
+  if (!s) return res.status(404).json({ error: 'Screen not found' });
+  const patch = {};
+  if (req.body.volume !== undefined) patch.volume = Math.max(0, Math.min(1, Number(req.body.volume)));
+  if (req.body.action !== undefined || req.body.seek !== undefined) {
+    const seq = ((s.cmd && s.cmd.seq) || 0) + 1;
+    patch.cmd = { seq, action: req.body.action || null, seek: (req.body.seek !== undefined ? Number(req.body.seek) : null), ts: Date.now() };
+  }
+  store.update('screens', id, patch);
+  res.json({ ok: true, cmd: patch.cmd || s.cmd || null, volume: patch.volume });
+});
+
 app.get('/api/screens/:id/nowplaying', auth, (req, res) => {
   const id = +req.params.id;
   const screen = store.find('screens', s => s.id === id && s.user_id === req.user.id);
