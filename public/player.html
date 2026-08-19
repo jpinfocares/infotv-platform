@@ -31,22 +31,30 @@ let deviceId=_params.get('device_id')||localStorage.getItem(DEVICE_KEY)||null;
 let playlist=[], idx=0, timer=null, lastKey='';
 
 async function register(){
-  const r=await fetch('/api/player/register',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({device_id:deviceId})});
-  const d=await r.json(); deviceId=d.device_id;
-  if(!PREVIEW) localStorage.setItem(DEVICE_KEY,deviceId);
-  if(d.pair_code) document.getElementById('code').textContent=d.pair_code;
+  try{
+    const r=await fetch('/api/player/register',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({device_id:deviceId})});
+    const d=await r.json(); if(d.device_id) deviceId=d.device_id;
+    if(!PREVIEW && deviceId) localStorage.setItem(DEVICE_KEY,deviceId);
+    if(d.pair_code) document.getElementById('code').textContent=d.pair_code;
+    return true;
+  }catch(e){ return false; }
 }
 async function poll(){
   try{
     const r=await fetch('/api/player/state?device_id='+encodeURIComponent(deviceId));
+    if(r.status===404){
+      // Server doesn't recognise this device yet (cold start / brief outage).
+      // KEEP the same device id and keep trying — never grab a fresh pairing code.
+      await register(); return;
+    }
     const d=await r.json();
     if(!d.paired){ showPair(d.pair_code); return; }
     if(d.blocked){ showBlocked(d.blocked); return; }
     if(d.paused){ showPaused(); return; }
     const key=JSON.stringify(d.playlist);
     if(key!==lastKey){ lastKey=key; playlist=d.playlist||[]; idx=0; startShow(); }
-  }catch(e){ /* keep trying */ }
+  }catch(e){ /* network blip — keep current content playing, retry next tick */ }
 }
 function showPaused(){
   clearTimeout(timer); lastKey='__paused__';
@@ -108,7 +116,23 @@ function unlockSound(){ try{ if(window._cur){ window._cur.muted=false; window._c
 document.addEventListener('click', unlockSound);
 document.addEventListener('keydown', unlockSound);
 document.addEventListener('touchstart', unlockSound);
-(async function(){ await register(); poll(); setInterval(poll,5000); })();
+async function boot(){
+  if(!deviceId){
+    // new device: must register to get an id + pairing code (retry until network is up)
+    let ok=false;
+    while(!ok){
+      ok=await register();
+      if(!ok){ try{document.getElementById('status').textContent='Connecting…';}catch(e){} await new Promise(r=>setTimeout(r,3000)); }
+    }
+  } else {
+    // returning device (e.g., after power cut): don't block — poll will resume playback,
+    // and register runs in the background to refresh
+    register();
+  }
+  poll();
+  setInterval(poll,5000);
+}
+boot();
 </script>
 </body>
 </html>
