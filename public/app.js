@@ -385,19 +385,37 @@ async function loadAdminUsage(){
 async function approveScreen(id,val){ try{ await api('/api/admin/screens/'+id,{method:'PATCH',json:{approved:val}}); toast(val?'Screen approved':'Screen revoked'); renderAdmin(); }catch(e){ toast(e.message);} }
 async function userLibrary(uid){
   let d; try{ d=await api('/api/admin/users/'+uid+'/library'); }catch(e){ toast(e.message); return; }
-  const cont=(d.content||[]).map(c=>`<div class="chk-row">
-    <div class="mini" style="display:grid;place-items:center;color:#fff">${c.type==='video'?'▶':'🖼'}</div>
-    <div><div style="font-weight:600;font-size:13px">${esc(c.title||'item')}</div>
-    <div style="color:var(--muted);font-size:12px">${c.type} • ${fmtBytes(c.size)} • ${ago(c.created_at)}</div></div></div>`).join('') || '<p style="color:var(--muted)">No content.</p>';
-  const sites=(d.websites||[]).map(w=>`<div class="chk-row">
-    <div class="mini" style="display:grid;place-items:center;color:#fff">🌐</div>
-    <div style="min-width:0"><div style="font-weight:600;font-size:13px">${esc(w.title||'website')}</div>
-    <div style="color:var(--muted);font-size:12px;word-break:break-all">${esc(w.url)}</div></div></div>`).join('') || '<p style="color:var(--muted)">No websites.</p>';
+  window._libUid=uid;
+  const cont=(d.content||[]).map(c=>`<div class="chk-row" style="justify-content:space-between">
+    <div style="display:flex;gap:10px;align-items:center;min-width:0">
+      <div class="mini" style="display:grid;place-items:center;color:#fff">${c.type==='video'?'▶':'🖼'}</div>
+      <div style="min-width:0"><div style="font-weight:600;font-size:13px">${esc(c.title||'item')}</div>
+      <div style="color:var(--muted);font-size:12px">${c.type} • ${fmtBytes(c.size)} • ${ago(c.created_at)}</div></div></div>
+    <div style="display:flex;gap:6px"><button class="btn sm ghost" onclick="libPreview('${c.type}','${c.url}','${esc(c.title).replace(/'/g,"\\'")}')">Preview</button>
+      <button class="kebab" onclick="libDel('content',${c.id},${uid})" title="Delete">🗑</button></div></div>`).join('') || '<p style="color:var(--muted)">No content.</p>';
+  const sites=(d.websites||[]).map(w=>`<div class="chk-row" style="justify-content:space-between">
+    <div style="display:flex;gap:10px;align-items:center;min-width:0">
+      <div class="mini" style="display:grid;place-items:center;color:#fff">🌐</div>
+      <div style="min-width:0"><div style="font-weight:600;font-size:13px">${esc(w.title||'website')}</div>
+      <div style="color:var(--muted);font-size:12px;word-break:break-all">${esc(w.url)}</div></div></div>
+    <div style="display:flex;gap:6px"><button class="btn sm ghost" onclick="libPreview('website','${w.url}','${esc(w.title).replace(/'/g,"\\'")}')">Preview</button>
+      <button class="kebab" onclick="libDel('websites',${w.id},${uid})" title="Delete">🗑</button></div></div>`).join('') || '<p style="color:var(--muted)">No websites.</p>';
   openModal('Library — '+esc(d.email||''), `
     <div style="font-weight:700;margin:4px 0 8px">📁 Content (${(d.content||[]).length})</div>
     <div class="chk-list" style="max-height:200px;margin-bottom:14px">${cont}</div>
     <div style="font-weight:700;margin:4px 0 8px">🌐 Websites (${(d.websites||[]).length})</div>
     <div class="chk-list" style="max-height:200px">${sites}</div>`, []);
+}
+function libPreview(type,url,title){
+  let body;
+  if(type==='video') body=`<video src="${url}" controls autoplay style="width:100%;border-radius:10px;background:#000"></video>`;
+  else if(type==='website') body=`<iframe src="${url}" style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000" allow="autoplay; encrypted-media; fullscreen"></iframe>`;
+  else body=`<img src="${url}" style="width:100%;border-radius:10px">`;
+  openModal('Preview — '+title, body, [{label:'Close',cls:'btn ghost',fn:()=>{ closeModal(); userLibrary(window._libUid); }}]);
+}
+async function libDel(kind,id,uid){
+  if(!confirm('Delete this '+(kind==='content'?'content':'website')+' from the user permanently?'))return;
+  try{ await api('/api/admin/'+kind+'/'+id,{method:'DELETE'}); toast('Deleted'); userLibrary(uid); }catch(e){ toast(e.message); }
 }
 function screenDatesModal(sid){
   const s=(window._adminScreens||[]).find(x=>x.id===sid); if(!s)return;
