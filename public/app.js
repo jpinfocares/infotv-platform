@@ -436,6 +436,9 @@ async function pvCtl(id,action){ pvFrameMsg({infotvCmd:action}); try{ await api(
 async function pvVol(id,val){ const v=Math.max(0,Math.min(1,val/100)); pvFrameMsg({infotvCmd:'vol',value:v}); clearTimeout(window._volT); window._volT=setTimeout(async()=>{ try{ await api('/api/screens/'+id+'/control',{json:{volume:v}}); }catch(e){} },300); }
 async function pvSeek(id,val){ const v=Math.max(0,Math.min(1,val/100)); pvFrameMsg({infotvCmd:'seek',value:v}); try{ await api('/api/screens/'+id+'/control',{json:{seek:v}}); }catch(e){} }
 function pvCmd(cmd){ pvFrameMsg({infotvCmd:cmd}); }
+async function pvGCtl(id,action){ pvFrameMsg({infotvCmd:action}); try{ await api('/api/groups/'+id+'/control',{json:{action:action}}); }catch(e){} }
+async function pvGVol(id,val){ const v=Math.max(0,Math.min(1,val/100)); pvFrameMsg({infotvCmd:'vol',value:v}); clearTimeout(window._gvolT); window._gvolT=setTimeout(async()=>{ try{ await api('/api/groups/'+id+'/control',{json:{volume:v}}); }catch(e){} },300); }
+async function pvGSeek(id,val){ const v=Math.max(0,Math.min(1,val/100)); pvFrameMsg({infotvCmd:'seek',value:v}); try{ await api('/api/groups/'+id+'/control',{json:{seek:v}}); }catch(e){} }
 async function previewGroup(id,name){
   let d; try{ d=await api('/api/groups/'+id+'/nowplaying'); }catch(e){ toast(e.message); return; }
   const items=(d.playlist||[]).map((it,i)=>`<div class="chk-row">
@@ -449,15 +452,19 @@ async function previewGroup(id,name){
   const controls = hasItems ? `
     <div style="margin:10px 0;display:flex;flex-direction:column;gap:8px">
       <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
-        <button class="btn sm ghost" onclick="pvCmd('prev')">⏮ Prev</button>
-        <button class="btn sm ghost" onclick="pvCmd('pause')">⏸ Pause</button>
-        <button class="btn sm ghost" onclick="pvCmd('play')">▶ Play</button>
-        <button class="btn sm ghost" onclick="pvCmd('next')">Next ⏭</button>
+        <button class="btn sm ghost" onclick="pvGCtl(${id},'prev')">⏮ Prev</button>
+        <button class="btn sm ghost" onclick="pvGCtl(${id},'pause')">⏸ Pause</button>
+        <button class="btn sm ghost" onclick="pvGCtl(${id},'play')">▶ Play</button>
+        <button class="btn sm ghost" onclick="pvGCtl(${id},'next')">Next ⏭</button>
         <span style="color:var(--muted);font-size:12px">Now: <b id="pvNow">…</b></span>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
         <span style="font-size:16px">🔊</span>
-        <input type="range" min="0" max="100" value="100" style="flex:1" oninput="pvFrameMsg({infotvCmd:'vol',value:this.value/100})">
+        <input type="range" min="0" max="100" value="100" style="flex:1" oninput="pvGVol(${id},this.value)">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:13px;color:var(--muted)">Seek</span>
+        <input type="range" min="0" max="100" value="0" style="flex:1" onchange="pvGSeek(${id},this.value)">
       </div>
     </div>` : '';
   openModal('Group preview — '+name, `
