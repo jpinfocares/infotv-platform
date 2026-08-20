@@ -19,7 +19,32 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ---------- file uploads (persistent disk aware) ----------
 const UPLOAD_DIR = path.join(process.env.DATA_ROOT || __dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+// Track bandwidth: count a content file's size against its owner when a TV loads it
+app.use('/uploads', (req, res, next) => {
+  try {
+    const fname = decodeURIComponent((req.path || '').replace(/^\//, ''));
+    const range = req.headers.range;
+    // count once per full load (ignore seek/range re-requests to avoid over-counting)
+    if (fname && (!range || /^bytes=0-/.test(range))) {
+      const c = store.find('content', x => x.filename === fname);
+      if (c && c.user_id && c.size) addUsage(c.user_id, c.size);
+    }
+  } catch (e) {}
+  next();
+});
 app.use('/uploads', express.static(UPLOAD_DIR));
+
+function today() { return new Date().toISOString().slice(0, 10); }
+function addUsage(userId, bytes) {
+  const day = today();
+  let row = store.find('usage', u => u.user_id === userId && u.day === day);
+  if (row) store.update('usage', row.id, { bytes: (row.bytes || 0) + bytes });
+  else store.insert('usage', { user_id: userId, day, bytes });
+}
+function sumUsage(userId, from, to) {
+  return store.all('usage', u => u.user_id === userId && (!from || u.day >= from) && (!to || u.day <= to))
+    .reduce((s, r) => s + (r.bytes || 0), 0);
+}
 
 // ---------- file uploads ----------
 const storage = multer.diskStorage({
@@ -84,6 +109,21 @@ function admin(req, res, next) {
   if (!u || u.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   next();
 }
+
+// Bandwidth usage — current user's own total for a date range
+app.get('/api/usage', auth, (req, res) => {
+  const from = req.query.from || '', to = req.query.to || '';
+  res.json({ bytes: sumUsage(req.user.id, from, to), from, to });
+});
+// Bandwidth usage — admin sees every user for a date range
+app.get('/api/admin/usage', auth, admin, (req, res) => {
+  const from = req.query.from || '', to = req.query.to || '';
+  const rows = store.all('users').map(u => ({
+    id: u.id, email: u.email, name: u.name,
+    bytes: sumUsage(u.id, from, to)
+  })).sort((a, b) => b.bytes - a.bytes);
+  res.json({ from, to, users: rows });
+});
 
 // ---- subscription / plan helpers ----
 function subActive(user) {
