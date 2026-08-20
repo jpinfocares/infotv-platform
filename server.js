@@ -222,6 +222,23 @@ app.get('/api/admin/users/:id/library', auth, admin, (req, res) => {
   }));
   res.json({ email: owner.email, name: owner.name, content, websites });
 });
+// Admin: delete any user's content
+app.delete('/api/admin/content/:id', auth, admin, (req, res) => {
+  const id = +req.params.id;
+  const row = store.find('content', c => c.id === id);
+  if (!row) return res.status(404).json({ error: 'Content not found' });
+  try { fs.unlinkSync(path.join(UPLOAD_DIR, row.filename)); } catch {}
+  store.remove('content', c => c.id === id);
+  store.remove('playlist', p => p.item_type === 'content' && p.item_id === id);
+  res.json({ ok: true });
+});
+// Admin: delete any user's website
+app.delete('/api/admin/websites/:id', auth, admin, (req, res) => {
+  const id = +req.params.id;
+  store.remove('websites', w => w.id === id);
+  store.remove('playlist', p => p.item_type === 'website' && p.item_id === id);
+  res.json({ ok: true });
+});
 app.patch('/api/admin/screens/:id', auth, admin, (req, res) => {
   const id = +req.params.id;
   const s = store.find('screens', x => x.id === id);
