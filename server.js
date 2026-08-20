@@ -207,6 +207,21 @@ app.get('/api/admin/screens', auth, admin, (req, res) => {
   }).reverse();
   res.json(rows);
 });
+// Admin: a specific user's content + websites (oversight)
+app.get('/api/admin/users/:id/library', auth, admin, (req, res) => {
+  const uid = +req.params.id;
+  const owner = store.find('users', u => u.id === uid);
+  if (!owner) return res.status(404).json({ error: 'User not found' });
+  const base = baseUrl(req);
+  const content = store.all('content', c => c.user_id === uid).reverse().map(c => ({
+    id: c.id, title: c.title, type: c.type, filename: c.filename,
+    url: `${base}/uploads/${c.filename}`, size: c.size || 0, created_at: c.created_at
+  }));
+  const websites = store.all('websites', w => w.user_id === uid).reverse().map(w => ({
+    id: w.id, title: w.title, url: w.url, duration: w.duration, created_at: w.created_at
+  }));
+  res.json({ email: owner.email, name: owner.name, content, websites });
+});
 app.patch('/api/admin/screens/:id', auth, admin, (req, res) => {
   const id = +req.params.id;
   const s = store.find('screens', x => x.id === id);
