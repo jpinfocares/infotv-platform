@@ -21,15 +21,19 @@ const UPLOAD_DIR = path.join(process.env.DATA_ROOT || __dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 // Track bandwidth: count a content file's size against its owner when a TV loads it
 app.use('/uploads', (req, res, next) => {
-  try {
-    const fname = decodeURIComponent((req.path || '').replace(/^\//, ''));
-    const range = req.headers.range;
-    // count once per full load (ignore seek/range re-requests to avoid over-counting)
-    if (fname && (!range || /^bytes=0-/.test(range))) {
-      const c = store.find('content', x => x.filename === fname);
-      if (c && c.user_id && c.size) addUsage(c.user_id, c.size);
-    }
-  } catch (e) {}
+  const fname = decodeURIComponent((req.path || '').replace(/^\//, ''));
+  let counted = 0;
+  const ow = res.write, oe = res.end;
+  res.write = function (chunk, ...a) { if (chunk) counted += chunk.length; return ow.apply(res, [chunk, ...a]); };
+  res.end = function (chunk, ...a) { if (chunk) counted += chunk.length; return oe.apply(res, [chunk, ...a]); };
+  res.on('finish', () => {
+    try {
+      if (fname && counted > 0) {
+        const c = store.find('content', x => x.filename === fname);
+        if (c && c.user_id) addUsage(c.user_id, counted);
+      }
+    } catch (e) {}
+  });
   next();
 });
 app.use('/uploads', express.static(UPLOAD_DIR));
