@@ -38,20 +38,22 @@ function nowISO() { return new Date().toISOString().replace('T', ' ').slice(0, 1
 // generic helpers
 function insert(table, obj) {
   const row = Object.assign({ id: nextId(table), created_at: nowISO() }, obj);
-  db[table].push(row);
+  tbl(table).push(row);
   saveNow();
   return row;
 }
-function all(table, pred) { return pred ? db[table].filter(pred) : db[table].slice(); }
-function find(table, pred) { return db[table].find(pred); }
+function tbl(t) { if (!db[t]) db[t] = []; return db[t]; }
+function all(table, pred) { const t = tbl(table); return pred ? t.filter(pred) : t.slice(); }
+function find(table, pred) { return tbl(table).find(pred); }
 function update(table, id, patch) {
-  const row = db[table].find(r => r.id === id);
+  const row = tbl(table).find(r => r.id === id);
   if (row) { Object.assign(row, patch); saveNow(); }
   return row;
 }
 function remove(table, pred) {
-  const before = db[table].length;
-  db[table] = db[table].filter(r => !pred(r));
+  const t = tbl(table);
+  const before = t.length;
+  db[table] = t.filter(r => !pred(r));
   if (db[table].length !== before) saveNow();
 }
 
