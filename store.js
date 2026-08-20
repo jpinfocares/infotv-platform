@@ -6,7 +6,7 @@ const DATA_DIR = path.join(process.env.DATA_ROOT || __dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 const FILE = path.join(DATA_DIR, 'db.json');
 
-const empty = { users: [], content: [], websites: [], groups: [], screens: [], playlist: [], seq: {} };
+const empty = { users: [], content: [], websites: [], groups: [], screens: [], playlist: [], usage: [], seq: {} };
 let db = empty;
 
 function load() {
