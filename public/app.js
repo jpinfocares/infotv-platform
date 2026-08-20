@@ -77,12 +77,29 @@ async function renderContent(){
   const v=$('#view');
   v.innerHTML=`<div class="page-head"><h1>Content library</h1><div class="spacer"></div>
     <div class="toolbar"><button class="btn sm" onclick="pickFiles()">Upload files</button></div></div>
+    <div id="usageBar" style="margin:0 0 14px;padding:12px 16px;background:var(--card);border:1px solid var(--line);border-radius:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span style="font-weight:600">📊 Data used</span>
+      <span style="color:var(--muted);font-size:13px">From</span><input id="uFrom" type="date" style="padding:6px;border:1px solid var(--line);border-radius:8px">
+      <span style="color:var(--muted);font-size:13px">To</span><input id="uTo" type="date" style="padding:6px;border:1px solid var(--line);border-radius:8px">
+      <button class="btn sm ghost" onclick="loadMyUsage()">Show</button>
+      <span style="margin-left:auto;font-weight:700" id="uTotal">…</span></div>
     <div id="contentGrid" class="grid"></div>`;
+  // default range = this month
+  const now=new Date(); const first=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10);
+  $('#uFrom').value=first; $('#uTo').value=now.toISOString().slice(0,10);
+  loadMyUsage();
   const items = await api('/api/content');
   const g=$('#contentGrid');
   if(!items.length){ g.outerHTML=`<div class="empty"><h3>No content yet</h3><p>Upload images or videos to show on your screens.</p><br>
     <button class="btn sm" style="margin:0 auto" onclick="pickFiles()">Upload files</button></div>`; return; }
   g.innerHTML=items.map(c=>cardHTML(c)).join('');
+}
+function fmtBytes(b){ b=b||0; if(b<1024)return b+' B'; if(b<1048576)return (b/1024).toFixed(1)+' KB'; if(b<1073741824)return (b/1048576).toFixed(1)+' MB'; return (b/1073741824).toFixed(2)+' GB'; }
+async function loadMyUsage(){
+  try{ const from=$('#uFrom').value, to=$('#uTo').value;
+    const d=await api('/api/usage?from='+from+'&to='+to);
+    const el=$('#uTotal'); if(el) el.textContent=fmtBytes(d.bytes);
+  }catch(e){ const el=$('#uTotal'); if(el) el.textContent='—'; }
 }
 function cardHTML(c){
   const src=`/uploads/${c.filename}`;
@@ -296,6 +313,13 @@ async function renderAdmin(){
   const v=$('#view');
   v.innerHTML=`<div class="page-head"><h1>Admin</h1><div class="spacer"></div>
     <div class="toolbar"><button class="btn sm" onclick="addUserModal()">Add user</button></div></div>
+    <div id="adminUsage" style="margin:0 0 16px;padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:12px">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+        <span style="font-weight:700">📊 Bandwidth by user</span>
+        <span style="color:var(--muted);font-size:13px">From</span><input id="auFrom" type="date" style="padding:6px;border:1px solid var(--line);border-radius:8px">
+        <span style="color:var(--muted);font-size:13px">To</span><input id="auTo" type="date" style="padding:6px;border:1px solid var(--line);border-radius:8px">
+        <button class="btn sm ghost" onclick="loadAdminUsage()">Show</button></div>
+      <div id="adminUsageList" style="font-size:13px;color:var(--muted)">…</div></div>
     <div id="pendingScreens"></div>
     <div id="userList"></div>`;
   let users;
@@ -333,6 +357,7 @@ async function renderAdmin(){
       <div style="color:var(--muted);font-size:12px">${esc(u.email)} • screens ${u.screens_used}/${u.screen_limit||'∞'} ${u.sub_expiry?('• expires '+u.sub_expiry):''}</div></div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
       ${u.role!=='admin'?`<button class="btn sm ghost" onclick="planModal(${u.id})">Plan</button>`:''}
+      <button class="btn sm ghost" onclick="userLibrary(${u.id})">Library</button>
       ${u.approved?`<button class="btn sm ghost" onclick="setApprove(${u.id},0)">Suspend</button>`
                   :`<button class="btn sm" onclick="setApprove(${u.id},1)">Approve</button>`}
       <button class="btn sm ghost" onclick="resetPwModal(${u.id},'${esc(u.email)}')">Password</button>
@@ -343,8 +368,37 @@ async function renderAdmin(){
   html+=`<h3 style="margin:18px 0 10px">All users (${active.length})</h3><div class="chk-list">${active.map(row).join('')}</div>`;
   $('#userList').innerHTML=html;
   window._adminUsers=users;
+  // default usage range = this month, then load
+  const now=new Date(); const first=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10);
+  if($('#auFrom')){ $('#auFrom').value=first; $('#auTo').value=now.toISOString().slice(0,10); loadAdminUsage(); }
+}
+async function loadAdminUsage(){
+  try{ const from=$('#auFrom').value, to=$('#auTo').value;
+    const d=await api('/api/admin/usage?from='+from+'&to='+to);
+    const total=d.users.reduce((s,u)=>s+(u.bytes||0),0);
+    const rows=d.users.map(u=>`<div class="chk-row" style="justify-content:space-between">
+      <div><b>${esc(u.name||u.email)}</b> <span style="color:var(--muted)">${esc(u.email)}</span></div>
+      <div style="font-weight:600">${fmtBytes(u.bytes)}</div></div>`).join('');
+    $('#adminUsageList').innerHTML=`<div style="margin-bottom:8px;font-weight:700;color:var(--ink)">Total: ${fmtBytes(total)}</div><div class="chk-list">${rows}</div>`;
+  }catch(e){ $('#adminUsageList').innerHTML='<span>'+esc(e.message)+'</span>'; }
 }
 async function approveScreen(id,val){ try{ await api('/api/admin/screens/'+id,{method:'PATCH',json:{approved:val}}); toast(val?'Screen approved':'Screen revoked'); renderAdmin(); }catch(e){ toast(e.message);} }
+async function userLibrary(uid){
+  let d; try{ d=await api('/api/admin/users/'+uid+'/library'); }catch(e){ toast(e.message); return; }
+  const cont=(d.content||[]).map(c=>`<div class="chk-row">
+    <div class="mini" style="display:grid;place-items:center;color:#fff">${c.type==='video'?'▶':'🖼'}</div>
+    <div><div style="font-weight:600;font-size:13px">${esc(c.title||'item')}</div>
+    <div style="color:var(--muted);font-size:12px">${c.type} • ${fmtBytes(c.size)} • ${ago(c.created_at)}</div></div></div>`).join('') || '<p style="color:var(--muted)">No content.</p>';
+  const sites=(d.websites||[]).map(w=>`<div class="chk-row">
+    <div class="mini" style="display:grid;place-items:center;color:#fff">🌐</div>
+    <div style="min-width:0"><div style="font-weight:600;font-size:13px">${esc(w.title||'website')}</div>
+    <div style="color:var(--muted);font-size:12px;word-break:break-all">${esc(w.url)}</div></div></div>`).join('') || '<p style="color:var(--muted)">No websites.</p>';
+  openModal('Library — '+esc(d.email||''), `
+    <div style="font-weight:700;margin:4px 0 8px">📁 Content (${(d.content||[]).length})</div>
+    <div class="chk-list" style="max-height:200px;margin-bottom:14px">${cont}</div>
+    <div style="font-weight:700;margin:4px 0 8px">🌐 Websites (${(d.websites||[]).length})</div>
+    <div class="chk-list" style="max-height:200px">${sites}</div>`, []);
+}
 function screenDatesModal(sid){
   const s=(window._adminScreens||[]).find(x=>x.id===sid); if(!s)return;
   openModal('Screen dates — '+esc(s.name||'Screen'), `
