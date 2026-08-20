@@ -61,7 +61,7 @@ async function register(){
 }
 async function poll(){
   try{
-    const r=await fetch('/api/player/state?device_id='+encodeURIComponent(deviceId));
+    const r=await fetch('/api/player/state?device_id='+encodeURIComponent(deviceId)+'&_t='+Date.now(),{cache:'no-store'});
     if(r.status===404){
       // Server doesn't recognise this device yet (cold start / brief outage).
       // KEEP the same device id and keep trying — never grab a fresh pairing code.
@@ -130,13 +130,22 @@ function next(){
     const wantMute = PREVIEW && !_pvUnmute;
     let src = wantMute?item.url.replace('mute=0','mute=1'):item.url;
     const isYT = /youtube|youtu\.be/.test(src);
-    if(isYT && src.indexOf('enablejsapi')<0){ src += (src.indexOf('?')<0?'?':'&')+'enablejsapi=1'; }
+    if(isYT && src.indexOf('enablejsapi')<0){ src += (src.indexOf('?')<0?'?':'&')+'enablejsapi=1&origin='+encodeURIComponent(location.origin); }
     _curType = isYT ? 'yt' : 'web';
     const f=document.createElement('iframe'); f.src=src;
     f.setAttribute('allow','autoplay; encrypted-media; fullscreen; picture-in-picture');
     f.setAttribute('allowfullscreen','');
     st.appendChild(f); window._cur=f; window._curFrame=f;
-    if(_srvVolume!=null){ setTimeout(function(){ applyVolume(_srvVolume); },1500); }
+    if(isYT){
+      // YouTube needs a "listening" handshake before it accepts postMessage commands
+      f.addEventListener('load',function(){
+        var n=0, iv=setInterval(function(){
+          try{ f.contentWindow.postMessage(JSON.stringify({event:'listening',id:1,channel:'widget'}),'*'); }catch(e){}
+          if(++n>10){ clearInterval(iv); if(_srvVolume!=null) applyVolume(_srvVolume); }
+        },400);
+      });
+    }
+    if(_srvVolume!=null){ setTimeout(function(){ applyVolume(_srvVolume); },1800); }
     // if this is the ONLY item, let it play/loop on its own (don't restart it every N sec)
     if(playlist.length>1){ timer=setTimeout(next,(item.duration||20)*1000); }
   }else{
