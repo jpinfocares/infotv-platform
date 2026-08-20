@@ -184,12 +184,33 @@ async function renderGroups(){
   if(!groups.length){ g.outerHTML=`<div class="empty"><h3>No groups yet</h3>
     <p>Groups let you push the same content to several screens at once.</p><br>
     <button class="btn sm" style="margin:0 auto" onclick="groupModal()">Add screen group</button></div>`; return; }
-  g.innerHTML=groups.map(gr=>`<div class="card"><div class="thumb"><div class="icon-stack">🗂️</div></div>
+  g.innerHTML=groups.map(gr=>`<div class="card"><div class="thumb"><div class="icon-stack">🗂️</div>${gr.sync?'<span class="badge">🔗 sync</span>':''}</div>
     <div class="card-body"><p class="title">${esc(gr.name)}</p><div class="meta">${gr.screen_count} screen(s)</div></div>
     <div class="card-actions"><span><button class="btn sm ghost" onclick="previewGroup(${gr.id},'${esc(gr.name).replace(/'/g,"\\'")}')">Preview</button>
-      <button class="btn sm ghost" onclick="assignModal('group',${gr.id},'${esc(gr.name)}')">Assign</button></span>
+      <button class="btn sm ghost" onclick="assignModal('group',${gr.id},'${esc(gr.name)}')">Assign</button>
+      <button class="btn sm ghost" onclick="syncModal(${gr.id})">🔗 Sync</button></span>
       <span><button class="kebab" onclick="editGroup(${gr.id},'${esc(gr.name).replace(/'/g,"\\'")}')" title="Rename">✏️</button>
       <button class="kebab" onclick="delGroup(${gr.id})" title="Delete">🗑</button></span></div></div>`).join('');
+}
+async function syncModal(id){
+  let screens=[]; try{ screens=await api('/api/screens'); }catch(e){}
+  let groups=[]; try{ groups=await api('/api/groups'); }catch(e){}
+  const gr=groups.find(x=>x.id===id)||{};
+  const inGroup=screens.filter(s=>Number(s.group_id)===id);
+  const opts='<option value="">— none (all muted) —</option>'+inGroup.map(s=>`<option value="${s.id}" ${Number(gr.audio_screen_id)===s.id?'selected':''}>${esc(s.name||'Screen')}</option>`).join('');
+  openModal('Sync group — '+esc(gr.name||''), `
+    <div style="color:var(--muted);font-size:13px;margin-bottom:12px">All screens in this group play the same video together. Pick one screen for sound (others stay muted) to avoid echo in a hall.</div>
+    <div class="chk-row" style="justify-content:space-between;margin-bottom:12px">
+      <div><b>Sync playback</b><div style="color:var(--muted);font-size:12px">Play the same content on every screen in this group</div></div>
+      <label class="switch"><input type="checkbox" id="syncOn" ${gr.sync?'checked':''}><span></span></label>
+    </div>
+    <div class="field"><label>Audio screen (only this one plays sound)</label>
+      <select id="syncAudio" style="width:100%;padding:12px;border:1px solid var(--line);border-radius:10px">${opts}</select></div>
+    <div style="color:var(--muted);font-size:12px">${inGroup.length} screen(s) in this group</div>`,
+    [{label:'🔄 Resync now',cls:'btn ghost',fn:async()=>{ try{ await api('/api/groups/'+id+'/resync',{json:{}}); toast('All screens resynced'); }catch(e){ toast(e.message);} }},
+     {label:'Save',cls:'btn',fn:async()=>{ try{
+      await api('/api/groups/'+id,{method:'PATCH',json:{sync:$('#syncOn').checked?1:0,audio_screen_id:$('#syncAudio').value||null}});
+      closeModal(); toast('Sync settings saved'); renderGroups(); }catch(e){ toast(e.message);} }}]);
 }
 function editGroup(id,name){
   openModal('Rename group', `<div class="field"><label>Group name</label><input id="egName" value="${esc(name)}"></div>`,
