@@ -78,7 +78,8 @@ async function renderContent(){
   v.innerHTML=`<div class="page-head"><h1>Content library</h1><div class="spacer"></div>
     <div class="toolbar"><button class="btn sm" onclick="pickFiles()">Upload files</button></div></div>
     <div id="usageBar" style="margin:0 0 14px;padding:12px 16px;background:var(--card);border:1px solid var(--line);border-radius:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <span style="font-weight:600">📊 Data used</span>
+      <span style="font-weight:600">📊 Bandwidth used</span>
+      <span style="color:var(--muted);font-size:12px">(data streamed to your TVs)</span>
       <span style="color:var(--muted);font-size:13px">From</span><input id="uFrom" type="date" style="padding:6px;border:1px solid var(--line);border-radius:8px">
       <span style="color:var(--muted);font-size:13px">To</span><input id="uTo" type="date" style="padding:6px;border:1px solid var(--line);border-radius:8px">
       <button class="btn sm ghost" onclick="loadMyUsage()">Show</button>
@@ -315,7 +316,7 @@ async function renderAdmin(){
     <div class="toolbar"><button class="btn sm" onclick="addUserModal()">Add user</button></div></div>
     <div id="adminUsage" style="margin:0 0 16px;padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:12px">
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
-        <span style="font-weight:700">📊 Bandwidth by user</span>
+        <span style="font-weight:700">📊 Outgoing bandwidth by user</span>
         <span style="color:var(--muted);font-size:13px">From</span><input id="auFrom" type="date" style="padding:6px;border:1px solid var(--line);border-radius:8px">
         <span style="color:var(--muted);font-size:13px">To</span><input id="auTo" type="date" style="padding:6px;border:1px solid var(--line);border-radius:8px">
         <button class="btn sm ghost" onclick="loadAdminUsage()">Show</button></div>
@@ -376,10 +377,17 @@ async function loadAdminUsage(){
   try{ const from=$('#auFrom').value, to=$('#auTo').value;
     const d=await api('/api/admin/usage?from='+from+'&to='+to);
     const total=d.users.reduce((s,u)=>s+(u.bytes||0),0);
-    const rows=d.users.map(u=>`<div class="chk-row" style="justify-content:space-between">
-      <div><b>${esc(u.name||u.email)}</b> <span style="color:var(--muted)">${esc(u.email)}</span></div>
-      <div style="font-weight:600">${fmtBytes(u.bytes)}</div></div>`).join('');
-    $('#adminUsageList').innerHTML=`<div style="margin-bottom:8px;font-weight:700;color:var(--ink)">Total: ${fmtBytes(total)}</div><div class="chk-list">${rows}</div>`;
+    const max=Math.max(1,...d.users.map(u=>u.bytes||0));
+    const rows=d.users.map(u=>{
+      const pct=Math.round(((u.bytes||0)/max)*100);
+      const share=total>0?Math.round(((u.bytes||0)/total)*100):0;
+      return `<div style="padding:8px 0;border-bottom:1px solid var(--line)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <div><b>${esc(u.name||u.email)}</b> <span style="color:var(--muted);font-size:12px">${esc(u.email)}</span></div>
+          <div style="font-weight:700">${fmtBytes(u.bytes)} <span style="color:var(--muted);font-size:11px;font-weight:400">(${share}%)</span></div></div>
+        <div style="height:6px;background:var(--line);border-radius:4px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--brand,#1a2a6c)"></div></div></div>`;
+    }).join('');
+    $('#adminUsageList').innerHTML=`<div style="margin-bottom:10px;font-weight:700;color:var(--ink);font-size:15px">Total outgoing: ${fmtBytes(total)}</div>${rows||'<span>No usage yet</span>'}`;
   }catch(e){ $('#adminUsageList').innerHTML='<span>'+esc(e.message)+'</span>'; }
 }
 async function approveScreen(id,val){ try{ await api('/api/admin/screens/'+id,{method:'PATCH',json:{approved:val}}); toast(val?'Screen approved':'Screen revoked'); renderAdmin(); }catch(e){ toast(e.message);} }
