@@ -423,6 +423,24 @@ app.get('/api/player/state', (req, res) => {
 });
 
 // Admin/user preview: what a given screen is currently playing
+// Group remote control → all screens in the group (keeps a synced hall together)
+app.post('/api/groups/:id/control', auth, (req, res) => {
+  const id = +req.params.id;
+  const g = store.find('groups', x => x.id === id && x.user_id === req.user.id);
+  if (!g) return res.status(404).json({ error: 'Group not found' });
+  const screens = store.all('screens', s => s.group_id === id && s.user_id === req.user.id);
+  screens.forEach(s => {
+    const patch = {};
+    if (req.body.volume !== undefined) patch.volume = Math.max(0, Math.min(1, Number(req.body.volume)));
+    if (req.body.action !== undefined || req.body.seek !== undefined) {
+      const seq = ((s.cmd && s.cmd.seq) || 0) + 1;
+      patch.cmd = { seq, action: req.body.action || null, seek: (req.body.seek !== undefined ? Number(req.body.seek) : null), ts: Date.now() };
+    }
+    store.update('screens', s.id, patch);
+  });
+  res.json({ ok: true, screens: screens.length });
+});
+
 // Operator remote control → TV (volume persists; action/seek are one-shot commands)
 app.post('/api/screens/:id/control', auth, (req, res) => {
   const id = +req.params.id;
