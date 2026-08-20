@@ -31,6 +31,12 @@ const ADHOC=_params.get('adhoc')==='1';
 let deviceId=_params.get('device_id')||localStorage.getItem(DEVICE_KEY)||null;
 let playlist=[], idx=0, timer=null, lastKey='';
 let _srvVolume=null, _lastCmdSeq=0, _curType='';
+let _syncEpoch=0, _syncOn=false, _syncAudio=false;
+function currentTargetVolume(){
+  if(_syncOn && !_syncAudio) return 0;        // muted screens in a sync group
+  return _srvVolume==null ? 1 : _srvVolume;
+}
+function applyAudioRole(){ if(_syncOn) applyVolume(currentTargetVolume()); }
 function ytPost(func,args){ try{ var f=window._curFrame; if(f&&f.contentWindow) f.contentWindow.postMessage(JSON.stringify({event:'command',func:func,args:args||[]}),'*'); }catch(e){} }
 function applyVolume(vol){
   if(vol==null) return;
@@ -71,6 +77,18 @@ async function poll(){
     if(!d.paired){ showPair(d.pair_code); return; }
     if(d.blocked){ showBlocked(d.blocked); return; }
     if(d.paused){ showPaused(); return; }
+    // ---- SYNC MODE: all screens in the group play the same item together; one has audio ----
+    if(d.sync && d.sync.on){
+      _syncOn=true; _syncAudio=!!d.sync.audio;
+      if(d.volume!==undefined && d.volume!==null) _srvVolume=d.volume;
+      const newList=JSON.stringify(d.playlist);
+      if(d.sync.epoch!==_syncEpoch || newList!==lastKey){
+        _syncEpoch=d.sync.epoch; lastKey=newList; playlist=d.playlist||[]; idx=0; startShow();
+      }
+      if(d.cmd && d.cmd.seq && d.cmd.seq>_lastCmdSeq){ _lastCmdSeq=d.cmd.seq; applyCmd(d.cmd); }
+      applyAudioRole();
+      return;
+    } else { _syncOn=false; _syncAudio=false; }
     if(d.volume!==undefined && d.volume!==null){ _srvVolume=d.volume; applyVolume(_srvVolume); }
     if(d.cmd && d.cmd.seq && d.cmd.seq>_lastCmdSeq){ _lastCmdSeq=d.cmd.seq; applyCmd(d.cmd); }
     const key=JSON.stringify(d.playlist);
@@ -111,7 +129,7 @@ function next(){
     _curType='video'; window._curFrame=null;
     const vmuted = PREVIEW ? !_pvUnmute : false;
     const v=document.createElement('video'); v.src=item.url; v.autoplay=true; v.muted=vmuted; v.volume=vmuted?0:1; v.playsInline=true;
-    if(_srvVolume!=null){ v.muted=(_srvVolume===0); v.volume=_srvVolume; }
+    if(_srvVolume!=null || _syncOn){ var tv=currentTargetVolume(); v.muted=(tv===0); v.volume=tv; }
     var dur=Number(item.duration)||0;
     if(dur>0){
       // loop the video for the given number of seconds, then move on
@@ -141,7 +159,7 @@ function next(){
       f.addEventListener('load',function(){
         var n=0, iv=setInterval(function(){
           try{ f.contentWindow.postMessage(JSON.stringify({event:'listening',id:1,channel:'widget'}),'*'); }catch(e){}
-          if(++n>10){ clearInterval(iv); if(_srvVolume!=null) applyVolume(_srvVolume); }
+          if(++n>10){ clearInterval(iv); applyVolume(currentTargetVolume()); }
         },400);
       });
     }
@@ -212,7 +230,7 @@ async function boot(){
     register();
   }
   poll();
-  setInterval(poll,5000);
+  setInterval(poll,3000);
 }
 boot();
 </script>
