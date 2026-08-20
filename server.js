@@ -22,15 +22,12 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 // Track bandwidth: count a content file's size against its owner when a TV loads it
 app.use('/uploads', (req, res, next) => {
   const fname = decodeURIComponent((req.path || '').replace(/^\//, ''));
-  let counted = 0;
-  const ow = res.write, oe = res.end;
-  res.write = function (chunk, ...a) { if (chunk) counted += chunk.length; return ow.apply(res, [chunk, ...a]); };
-  res.end = function (chunk, ...a) { if (chunk) counted += chunk.length; return oe.apply(res, [chunk, ...a]); };
   res.on('finish', () => {
     try {
-      if (fname && counted > 0) {
+      const len = Number(res.getHeader('Content-Length')) || 0;
+      if (fname && len > 0 && res.statusCode < 400) {
         const c = store.find('content', x => x.filename === fname);
-        if (c && c.user_id) addUsage(c.user_id, counted);
+        if (c && c.user_id) addUsage(c.user_id, len);
       }
     } catch (e) {}
   });
@@ -458,7 +455,7 @@ function mapRows(rows, req) {
     } else {
       const w = store.find('websites', x => x.id === r.item_id);
       if (!w) return null;
-      return { kind: 'website', type: 'website', url: w.url, duration: w.duration || 20, title: w.title };
+      return { kind: 'website', type: 'website', url: w.url, duration: w.duration || 0, title: w.title };
     }
   }).filter(Boolean);
 }
