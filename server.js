@@ -387,6 +387,7 @@ function resolveGroupPlaylist(groupId, req) {
 }
 
 app.get('/api/player/state', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   const device_id = req.query.device_id;
   const screen = store.find('screens', s => s.device_id === device_id);
   if (!screen) return res.status(404).json({ error: 'unknown device' });
