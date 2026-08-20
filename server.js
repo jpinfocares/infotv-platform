@@ -289,7 +289,17 @@ app.patch('/api/groups/:id', auth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'Group not found' });
   const patch = {};
   if (req.body.name !== undefined) patch.name = req.body.name;
+  if (req.body.sync !== undefined) { patch.sync = req.body.sync ? 1 : 0; patch.sync_epoch = Date.now(); }
+  if (req.body.audio_screen_id !== undefined) patch.audio_screen_id = req.body.audio_screen_id ? Number(req.body.audio_screen_id) : null;
   res.json(store.update('groups', id, patch));
+});
+// Resync: restart every screen in the group together (fresh shared start time)
+app.post('/api/groups/:id/resync', auth, (req, res) => {
+  const id = +req.params.id;
+  const row = store.find('groups', g => g.id === id && g.user_id === req.user.id);
+  if (!row) return res.status(404).json({ error: 'Group not found' });
+  store.update('groups', id, { sync_epoch: Date.now(), sync: 1 });
+  res.json({ ok: true });
 });
 
 // ================= SCREENS =================
@@ -398,9 +408,17 @@ app.get('/api/player/state', (req, res) => {
   if (!subActive(owner)) return res.json({ paired: true, name: screen.name, blocked: 'Subscription expired — contact admin', playlist: [] });
   if (!screenActive(screen)) return res.json({ paired: true, name: screen.name, blocked: 'This screen has expired — contact admin', playlist: [] });
   if (screen.paused) return res.json({ paired: true, name: screen.name, paused: true, playlist: [] });
+  // sync mode: if this screen's group has sync on, tell the player the shared start time + audio role
+  let sync = null;
+  if (screen.group_id) {
+    const g = store.find('groups', x => x.id === screen.group_id);
+    if (g && g.sync) sync = { on: true, epoch: g.sync_epoch || 0, audio: (g.audio_screen_id === screen.id) };
+  }
   res.json({ paired: true, name: screen.name, paused: false,
     volume: (screen.volume == null ? null : screen.volume),
     cmd: screen.cmd || null,
+    sync: sync,
+    now: Date.now(),
     playlist: resolvePlaylist(screen, req) });
 });
 
